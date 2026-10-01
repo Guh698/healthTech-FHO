@@ -422,4 +422,4 @@ function onWindowResize() {
 }
 
 init();
-/*playAndFadeIn();*/
+playAndFadeIn();
