@@ -36,7 +36,7 @@ const interactableTargets = [];
 let tiaAnaModel;
 
 // Audio
-/*const lumaAudio = new Audio("./assets/luma-cinematic-voice.mp3");*/
+const lumaAudio = new Audio("./assets/luma-cinematic-voice.mp3");
 
 const bgMusic = new Howl({
   src: "./assets/fluteMusic.mp3",
