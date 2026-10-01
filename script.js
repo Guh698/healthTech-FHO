@@ -143,7 +143,7 @@ function setupCoreEnvironment() {
   document.body.appendChild(VRButton.createButton(renderer));
 
   cameraRig = new THREE.Group();
-  cameraRig.position.set(0, 1.2, 3);
+  cameraRig.position.set(0, 0.7, 2.5);
   scene.add(cameraRig);
 
   camera = new THREE.PerspectiveCamera(
@@ -255,8 +255,9 @@ function loadTiaAnaModel() {
 
   gltfLoader.load("./assets/tia-ana.glb", (gltf) => {
     tiaAnaModel = gltf.scene;
-    tiaAnaModel.position.set(2, 0, 3);
-    tiaAnaModel.lookAt(0, 0, 2);
+    tiaAnaModel.scale.setScalar(1.3);
+    tiaAnaModel.position.set(1.3, -0.5, 3);
+    tiaAnaModel.rotation.set(0, -2.3, 0);
     scene.add(tiaAnaModel);
 
     state.mixer = new THREE.AnimationMixer(tiaAnaModel);
@@ -356,7 +357,14 @@ function triggerTiaAnaEntrance() {
     gsap.to(tiaAnaModel.position, {
       x: 0.8,
       y: -0.5,
-      z: -1.5,
+      z: 1,
+      duration: 3,
+      ease: "none",
+    });
+    gsap.to(tiaAnaModel.rotation, {
+      x: 0,
+      y: -0.7,
+      z: 0,
       duration: 3,
       ease: "none",
     });
@@ -414,4 +422,4 @@ function onWindowResize() {
 }
 
 init();
-playAndFadeIn();
+/*playAndFadeIn();*/
