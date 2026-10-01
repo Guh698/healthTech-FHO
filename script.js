@@ -2,7 +2,9 @@ import * as THREE from "three";
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+// ==========================================
 // 1. CONFIGURATION & DOM ELEMENTS
+// ==========================================
 const CONFIG = {
   debugMode: false,
   dwellThreshold: 90,
@@ -15,7 +17,9 @@ const DOM = {
   unlockBtn: document.getElementById("unlock-btn"),
 };
 
-// 2. GLOBAL STATE
+// ==========================================
+// 2. GLOBAL STATE & THREE.JS CORE
+// ==========================================
 const state = {
   dwellTimer: 0,
   currentTarget: null,
@@ -24,20 +28,17 @@ const state = {
   animations: { idle: null, talk: null, walk: null, all: [], currentIndex: 0 },
 };
 
-// Core Three.js
 let scene, camera, renderer, cameraRig, clock;
 let reticle, reticleMat, raycaster;
 const centerScreen = new THREE.Vector2(0, 0);
 
-// Scene Objects
 let lumaMesh, lumaGroup, magicShield;
 const creatures = [];
 const interactableTargets = [];
 let tiaAnaModel;
 
-// Audio
-const lumaAudio = new Audio("./assets/luma-cinematic-voice.mp3");
-
+// Audio Setup
+// const lumaAudio = new Audio("./assets/luma-cinematic-voice.mp3");
 const bgMusic = new Howl({
   src: "./assets/fluteMusic.mp3",
   loop: true,
@@ -60,7 +61,9 @@ function turnUpVolume() {
   bgMusic.fade(bgMusic.volume(), 0.25, 700);
 }
 
+// ==========================================
 // 3. INITIALIZATION
+// ==========================================
 function init() {
   setupDeviceSensors();
   setupCoreEnvironment();
@@ -69,28 +72,26 @@ function init() {
   setupLumaAndMagic();
   loadTiaAnaModel();
 
-  // Start Loop
   renderer.setAnimationLoop(animate);
   window.addEventListener("resize", onWindowResize);
 }
 
+// ==========================================
 // 4. SETUP FUNCTIONS
+// ==========================================
 function setupDeviceSensors() {
   const isQuestOrHeadset = /OculusBrowser|Quest|Pico/i.test(
     navigator.userAgent,
   );
-  // 1. Add the mobile detection
   const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
 
   if (isQuestOrHeadset && DOM.sensorOverlay) {
     DOM.sensorOverlay.style.display = "none";
   } else if (isMobile) {
-    // 2. Only force the polyfill if the user is physically on a phone
     if (window.WebXRPolyfill) {
       new window.WebXRPolyfill({ force: true });
     }
   } else {
-    // 3. If on a Desktop PC, hide the overlay and let the DevTools Emulator work
     if (DOM.sensorOverlay) DOM.sensorOverlay.style.display = "none";
   }
 
@@ -177,7 +178,6 @@ function setupReticle() {
 }
 
 function setupLumaAndMagic() {
-  // Luma Object
   lumaGroup = new THREE.Group();
   lumaGroup.position.set(0, 1.4, 1.5);
 
@@ -197,7 +197,6 @@ function setupLumaAndMagic() {
   scene.add(lumaGroup);
   interactableTargets.push(lumaMesh);
 
-  // Magic Shield
   const shieldGeo = new THREE.SphereGeometry(2, 32, 32);
   const shieldMat = new THREE.MeshBasicMaterial({
     color: 0xffd700,
@@ -208,7 +207,6 @@ function setupLumaAndMagic() {
   magicShield = new THREE.Mesh(shieldGeo, shieldMat);
   cameraRig.add(magicShield);
 
-  // Magic Creatures
   const creaturesGroup = new THREE.Group();
   scene.add(creaturesGroup);
 
@@ -234,7 +232,6 @@ function setupLumaAndMagic() {
     creatures.push(creature);
   }
 
-  // Floating Animations
   gsap.to(lumaMesh.scale, {
     x: 1.15,
     y: 1.15,
@@ -267,7 +264,6 @@ function loadTiaAnaModel() {
 
     if (clips.length > 0) {
       state.animations.all = clips.map((clip) => state.mixer.clipAction(clip));
-
       state.animations.all[state.animations.currentIndex].play();
 
       window.addEventListener("keydown", (event) => {
@@ -295,17 +291,16 @@ function triggerLumaMagic() {
   if (state.hasSpoken) return;
   state.hasSpoken = true;
 
-  /*lumaAudio
-    .play()
-    .catch((e) => console.log("Audio play requires user interaction:", e));
-*/
+  // lumaAudio.play().catch((e) => console.log("Audio play requires user interaction:", e));
+
   gsap.to(lumaMesh.rotation, {
     y: Math.PI * 2,
     duration: 1.5,
     ease: "power2.out",
   });
+
   gsap.to(magicShield.material, {
-    /*opacity: 0.15,*/
+    opacity: 0.15,
     duration: 2,
     ease: "sine.inOut",
   });
@@ -338,7 +333,7 @@ function triggerLumaMagic() {
 }
 
 function triggerTiaAnaEntrance() {
-  /* if (!tiaAnaModel) return;
+  if (!tiaAnaModel) return;
 
   const { idle, talk, walk } = state.animations;
 
@@ -365,7 +360,7 @@ function triggerTiaAnaEntrance() {
       duration: 3,
       ease: "none",
     });
-  }*/
+  }
 }
 
 // ==========================================
@@ -419,4 +414,4 @@ function onWindowResize() {
 }
 
 init();
-/*playAndFadeIn();*/
+playAndFadeIn();
