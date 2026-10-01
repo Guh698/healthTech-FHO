@@ -300,7 +300,7 @@ function triggerLumaMagic() {
   });
 
   gsap.to(magicShield.material, {
-    opacity: 0.15,
+    opacity: 0.0, //so weird yet haha
     duration: 2,
     ease: "sine.inOut",
   });
