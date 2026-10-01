@@ -79,11 +79,19 @@ function setupDeviceSensors() {
   const isQuestOrHeadset = /OculusBrowser|Quest|Pico/i.test(
     navigator.userAgent,
   );
+  // 1. Add the mobile detection
+  const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
 
   if (isQuestOrHeadset && DOM.sensorOverlay) {
     DOM.sensorOverlay.style.display = "none";
-  } else if (window.WebXRPolyfill) {
-    new window.WebXRPolyfill({ force: true });
+  } else if (isMobile) {
+    // 2. Only force the polyfill if the user is physically on a phone
+    if (window.WebXRPolyfill) {
+      new window.WebXRPolyfill({ force: true });
+    }
+  } else {
+    // 3. If on a Desktop PC, hide the overlay and let the DevTools Emulator work
+    if (DOM.sensorOverlay) DOM.sensorOverlay.style.display = "none";
   }
 
   DOM.unlockBtn?.addEventListener("click", async () => {
@@ -101,7 +109,7 @@ function setupDeviceSensors() {
         console.error("Gyro error:", err);
       }
     }
-    DOM.sensorOverlay.style.display = "none";
+    if (DOM.sensorOverlay) DOM.sensorOverlay.style.display = "none";
   });
 }
 
