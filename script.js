@@ -1,219 +1,306 @@
 import * as THREE from "three";
 import { VRButton } from "three/addons/webxr/VRButton.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
-// ==========================================
-// 0. SMART HEADSET DETECTION & SENSOR HANDLING
-// ==========================================
-const isQuestOrHeadset = /OculusBrowser|Quest|Pico/i.test(navigator.userAgent);
-const sensorOverlay = document.getElementById("sensor-overlay");
-const unlockBtn = document.getElementById("unlock-btn");
+// 1. CONFIGURATION & DOM ELEMENTS
+const CONFIG = {
+  debugMode: false,
+  dwellThreshold: 90,
+  roomTextureUrl:
+    "https://res.cloudinary.com/dabshzrnj/image/upload/v1788923901/Gemini_Generated_Image_ua25woua25woua25_zjl1ii.jpg",
+};
 
-if (isQuestOrHeadset) {
-  if (sensorOverlay) sensorOverlay.style.display = "none";
-} else {
-  if (window.WebXRPolyfill) {
-    new window.WebXRPolyfill({ force: true });
-  }
-}
+const DOM = {
+  sensorOverlay: document.getElementById("sensor-overlay"),
+  unlockBtn: document.getElementById("unlock-btn"),
+};
 
-unlockBtn.addEventListener("click", async () => {
-  if (
-    typeof DeviceOrientationEvent !== "undefined" &&
-    typeof DeviceOrientationEvent.requestPermission === "function"
-  ) {
-    try {
-      const permission = await DeviceOrientationEvent.requestPermission();
-      if (permission !== "granted") {
-        alert("Gyroscope permission denied!");
-        return;
-      }
-    } catch (err) {
-      console.error("Gyro error:", err);
-    }
-  }
-  sensorOverlay.style.display = "none";
-});
+// 2. GLOBAL STATE
+const state = {
+  dwellTimer: 0,
+  currentTarget: null,
+  hasSpoken: false,
+  mixer: null,
+  animations: { idle: null, talk: null, walk: null, all: [], currentIndex: 0 },
+};
 
-// ==========================================
-// 1. CORE SETUP & 360 UPA ROOM
-// ==========================================
-const scene = new THREE.Scene();
-
-// Load the 360-degree equirectangular image
-const textureLoader = new THREE.TextureLoader();
-// Placeholder: A public domain 360 image. Replace with your AI-generated UPA room!
-const roomTexture = textureLoader.load(
-  "https://res.cloudinary.com/dabshzrnj/image/upload/v1788923901/Gemini_Generated_Image_ua25woua25woua25_zjl1ii.jpg",
-);
-roomTexture.colorSpace = THREE.SRGBColorSpace;
-
-// Create a massive sphere and flip it inside out
-const roomGeo = new THREE.SphereGeometry(50, 60, 40);
-roomGeo.scale(-1, 1, 1);
-
-// Use MeshBasicMaterial so the image isn't affected by our scene's lights
-const roomMat = new THREE.MeshBasicMaterial({ map: roomTexture });
-const environmentSphere = new THREE.Mesh(roomGeo, roomMat);
-scene.add(environmentSphere);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.xr.enabled = true;
-renderer.xr.setReferenceSpaceType("local");
-document.body.appendChild(renderer.domElement);
-
-const vrButton = VRButton.createButton(renderer);
-document.body.appendChild(vrButton);
-
-const cameraRig = new THREE.Group();
-cameraRig.position.set(0, 1.2, 3);
-scene.add(cameraRig);
-
-const camera = new THREE.PerspectiveCamera(
-  70,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000,
-);
-cameraRig.add(camera);
-
-// ==========================================
-// 2. GAZE RETICLE
-// ==========================================
-const reticleGeo = new THREE.RingGeometry(0.015, 0.025, 32);
-const reticleMat = new THREE.MeshBasicMaterial({
-  color: 0xffffff,
-  transparent: true,
-  opacity: 0.7,
-  depthTest: false,
-});
-const reticle = new THREE.Mesh(reticleGeo, reticleMat);
-reticle.position.set(0, 0, -2);
-camera.add(reticle);
-
-// ==========================================
-// 3. WARM LIGHTING (Affects Luma, not the walls)
-// ==========================================
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xfff4e5, 1.0);
-dirLight.position.set(5, 10, 7);
-scene.add(dirLight);
-
-// ==========================================
-// 4. LUMA & MAGICAL ENVIRONMENT
-// ==========================================
-const targets = [];
-
-const lumaGroup = new THREE.Group();
-lumaGroup.position.set(0, 1.4, 1.5);
-
-const lumaGeo = new THREE.IcosahedronGeometry(0.15, 0);
-const lumaMat = new THREE.MeshStandardMaterial({
-  color: 0xffd700,
-  emissive: 0xffaa00,
-  emissiveIntensity: 0.8,
-  flatShading: true,
-});
-const lumaMesh = new THREE.Mesh(lumaGeo, lumaMat);
-lumaMesh.name = "Luma";
-lumaGroup.add(lumaMesh);
-
-const lumaLight = new THREE.PointLight(0xffd700, 2, 5);
-lumaGroup.add(lumaLight);
-
-scene.add(lumaGroup);
-targets.push(lumaMesh);
-
-gsap.to(lumaMesh.scale, {
-  x: 1.15,
-  y: 1.15,
-  z: 1.15,
-  duration: 2,
-  yoyo: true,
-  repeat: -1,
-  ease: "sine.inOut",
-});
-gsap.to(lumaGroup.position, {
-  y: 1.5,
-  duration: 2.5,
-  yoyo: true,
-  repeat: -1,
-  ease: "sine.inOut",
-});
-
-const shieldGeo = new THREE.SphereGeometry(2, 32, 32);
-const shieldMat = new THREE.MeshBasicMaterial({
-  color: 0xffd700,
-  transparent: true,
-  opacity: 0.0,
-  side: THREE.BackSide,
-});
-const magicShield = new THREE.Mesh(shieldGeo, shieldMat);
-cameraRig.add(magicShield);
-
-// ==========================================
-// 4.5 MAGICAL CREATURES (Bichinhos de Luz)
-// ==========================================
-const creaturesGroup = new THREE.Group();
-scene.add(creaturesGroup);
-const creatures = [];
-
-const creatureGeo = new THREE.TetrahedronGeometry(0.05, 1);
-const creatureMat = new THREE.MeshStandardMaterial({
-  color: 0x00ffff,
-  emissive: 0x0088ff,
-  emissiveIntensity: 0,
-  transparent: true,
-  opacity: 0,
-  flatShading: true,
-});
-
-for (let i = 0; i < 5; i++) {
-  const creature = new THREE.Mesh(creatureGeo, creatureMat.clone());
-  creature.position.set(
-    (Math.random() - 0.5) * 2,
-    1.0 + Math.random() * 0.5,
-    -1.5 + (Math.random() - 0.5),
-  );
-  creature.scale.setScalar(0.1);
-  creaturesGroup.add(creature);
-  creatures.push(creature);
-}
-
-// ==========================================
-// 5. GAZE RAYCASTING & INTERACTION LOGIC
-// ==========================================
-const raycaster = new THREE.Raycaster();
+// Core Three.js
+let scene, camera, renderer, cameraRig, clock;
+let reticle, reticleMat, raycaster;
 const centerScreen = new THREE.Vector2(0, 0);
 
-let dwellTimer = 0;
-const DWELL_THRESHOLD = 90;
-let currentTarget = null;
-let hasSpoken = false;
+// Scene Objects
+let lumaMesh, lumaGroup, magicShield;
+const creatures = [];
+const interactableTargets = [];
+let tiaAnaModel;
 
-const lumaAudio = new Audio("./assets/luma-cinematic-voice.mp3");
+// Audio
+/*const lumaAudio = new Audio("./assets/luma-cinematic-voice.mp3");*/
+
+const bgMusic = new Howl({
+  src: "./assets/fluteMusic.mp3",
+  loop: true,
+  volume: 0.0,
+  preload: true,
+});
+
+function playAndFadeIn() {
+  if (!bgMusic.playing()) {
+    bgMusic.play();
+    bgMusic.fade(0.0, 0.25, 1700);
+  }
+}
+
+function turnDownVolume() {
+  bgMusic.fade(bgMusic.volume(), 0.1, 700);
+}
+
+function turnUpVolume() {
+  bgMusic.fade(bgMusic.volume(), 0.25, 700);
+}
+
+// 3. INITIALIZATION
+function init() {
+  setupDeviceSensors();
+  setupCoreEnvironment();
+  setupLighting();
+  setupReticle();
+  setupLumaAndMagic();
+  loadTiaAnaModel();
+
+  // Start Loop
+  renderer.setAnimationLoop(animate);
+  window.addEventListener("resize", onWindowResize);
+}
+
+// 4. SETUP FUNCTIONS
+function setupDeviceSensors() {
+  const isQuestOrHeadset = /OculusBrowser|Quest|Pico/i.test(
+    navigator.userAgent,
+  );
+
+  if (isQuestOrHeadset && DOM.sensorOverlay) {
+    DOM.sensorOverlay.style.display = "none";
+  } else if (window.WebXRPolyfill) {
+    new window.WebXRPolyfill({ force: true });
+  }
+
+  DOM.unlockBtn?.addEventListener("click", async () => {
+    if (
+      typeof DeviceOrientationEvent !== "undefined" &&
+      typeof DeviceOrientationEvent.requestPermission === "function"
+    ) {
+      try {
+        const permission = await DeviceOrientationEvent.requestPermission();
+        if (permission !== "granted") {
+          alert("Gyroscope permission denied!");
+          return;
+        }
+      } catch (err) {
+        console.error("Gyro error:", err);
+      }
+    }
+    DOM.sensorOverlay.style.display = "none";
+  });
+}
+
+function setupCoreEnvironment() {
+  scene = new THREE.Scene();
+  clock = new THREE.Clock();
+
+  if (CONFIG.debugMode) {
+    scene.background = new THREE.Color("#121418");
+    const grid = new THREE.GridHelper(20, 20, 0x00ffff, 0x333333);
+    grid.position.y = -0.5;
+    scene.add(grid);
+  } else {
+    const textureLoader = new THREE.TextureLoader();
+    const roomTexture = textureLoader.load(CONFIG.roomTextureUrl);
+    roomTexture.colorSpace = THREE.SRGBColorSpace;
+
+    const roomGeo = new THREE.SphereGeometry(50, 60, 40);
+    roomGeo.scale(-1, 1, 1);
+    const roomMat = new THREE.MeshBasicMaterial({ map: roomTexture });
+    scene.add(new THREE.Mesh(roomGeo, roomMat));
+  }
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.xr.enabled = true;
+  renderer.xr.setReferenceSpaceType("local");
+  document.body.appendChild(renderer.domElement);
+  document.body.appendChild(VRButton.createButton(renderer));
+
+  cameraRig = new THREE.Group();
+  cameraRig.position.set(0, 1.2, 3);
+  scene.add(cameraRig);
+
+  camera = new THREE.PerspectiveCamera(
+    70,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000,
+  );
+  cameraRig.add(camera);
+}
+
+function setupLighting() {
+  scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+  const dirLight = new THREE.DirectionalLight(0xfff4e5, 1.0);
+  dirLight.position.set(5, 10, 7);
+  scene.add(dirLight);
+}
+
+function setupReticle() {
+  raycaster = new THREE.Raycaster();
+
+  const reticleGeo = new THREE.RingGeometry(0.015, 0.025, 32);
+  reticleMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.7,
+    depthTest: false,
+  });
+  reticle = new THREE.Mesh(reticleGeo, reticleMat);
+  reticle.position.set(0, 0, -2);
+  camera.add(reticle);
+}
+
+function setupLumaAndMagic() {
+  // Luma Object
+  lumaGroup = new THREE.Group();
+  lumaGroup.position.set(0, 1.4, 1.5);
+
+  const lumaGeo = new THREE.IcosahedronGeometry(0.15, 0);
+  const lumaMat = new THREE.MeshStandardMaterial({
+    color: 0xffd700,
+    emissive: 0xffaa00,
+    emissiveIntensity: 0.8,
+    flatShading: true,
+  });
+
+  lumaMesh = new THREE.Mesh(lumaGeo, lumaMat);
+  lumaMesh.name = "Luma";
+  lumaGroup.add(lumaMesh);
+  lumaGroup.add(new THREE.PointLight(0xffd700, 2, 5));
+
+  scene.add(lumaGroup);
+  interactableTargets.push(lumaMesh);
+
+  // Magic Shield
+  const shieldGeo = new THREE.SphereGeometry(2, 32, 32);
+  const shieldMat = new THREE.MeshBasicMaterial({
+    color: 0xffd700,
+    transparent: true,
+    opacity: 0.0,
+    side: THREE.BackSide,
+  });
+  magicShield = new THREE.Mesh(shieldGeo, shieldMat);
+  cameraRig.add(magicShield);
+
+  // Magic Creatures
+  const creaturesGroup = new THREE.Group();
+  scene.add(creaturesGroup);
+
+  const creatureGeo = new THREE.TetrahedronGeometry(0.05, 1);
+  const creatureMat = new THREE.MeshStandardMaterial({
+    color: 0x00ffff,
+    emissive: 0x0088ff,
+    emissiveIntensity: 0,
+    transparent: true,
+    opacity: 0,
+    flatShading: true,
+  });
+
+  for (let i = 0; i < 5; i++) {
+    const creature = new THREE.Mesh(creatureGeo, creatureMat.clone());
+    creature.position.set(
+      (Math.random() - 0.5) * 2,
+      1.0 + Math.random() * 0.5,
+      -1.5 + (Math.random() - 0.5),
+    );
+    creature.scale.setScalar(0.1);
+    creaturesGroup.add(creature);
+    creatures.push(creature);
+  }
+
+  // Floating Animations
+  gsap.to(lumaMesh.scale, {
+    x: 1.15,
+    y: 1.15,
+    z: 1.15,
+    duration: 2,
+    yoyo: true,
+    repeat: -1,
+    ease: "sine.inOut",
+  });
+  gsap.to(lumaGroup.position, {
+    y: 1.5,
+    duration: 2.5,
+    yoyo: true,
+    repeat: -1,
+    ease: "sine.inOut",
+  });
+}
+
+function loadTiaAnaModel() {
+  const gltfLoader = new GLTFLoader();
+
+  gltfLoader.load("./assets/tia-ana.glb", (gltf) => {
+    tiaAnaModel = gltf.scene;
+    tiaAnaModel.position.set(2, 0, 3);
+    tiaAnaModel.lookAt(0, 0, 2);
+    scene.add(tiaAnaModel);
+
+    state.mixer = new THREE.AnimationMixer(tiaAnaModel);
+    const clips = gltf.animations;
+
+    if (clips.length > 0) {
+      state.animations.all = clips.map((clip) => state.mixer.clipAction(clip));
+
+      state.animations.all[state.animations.currentIndex].play();
+
+      window.addEventListener("keydown", (event) => {
+        if (event.code === "Space") {
+          state.animations.all[state.animations.currentIndex].stop();
+          state.animations.currentIndex =
+            (state.animations.currentIndex + 1) % state.animations.all.length;
+          state.animations.all[state.animations.currentIndex].play();
+        }
+      });
+    }
+  });
+}
+
+// ==========================================
+// 5. INTERACTION & ANIMATION LOGIC
+// ==========================================
+function handleGazeSuccess(hitObject) {
+  if (hitObject.name === "Luma") {
+    triggerLumaMagic();
+  }
+}
 
 function triggerLumaMagic() {
-  if (hasSpoken) return;
-  hasSpoken = true;
+  if (state.hasSpoken) return;
+  state.hasSpoken = true;
 
-  lumaAudio
+  /*lumaAudio
     .play()
-    .catch((e) =>
-      console.log(
-        "Audio play requires user interaction first on some browsers.",
-        e,
-      ),
-    );
-
+    .catch((e) => console.log("Audio play requires user interaction:", e));
+*/
   gsap.to(lumaMesh.rotation, {
     y: Math.PI * 2,
     duration: 1.5,
     ease: "power2.out",
   });
-  gsap.to(shieldMat, { opacity: 0.15, duration: 2, ease: "sine.inOut" });
+  gsap.to(magicShield.material, {
+    /*opacity: 0.15,*/
+    duration: 2,
+    ease: "sine.inOut",
+  });
 
   creatures.forEach((creature, index) => {
     gsap.to(creature.material, {
@@ -222,7 +309,6 @@ function triggerLumaMagic() {
       duration: 1,
       delay: index * 0.2,
     });
-
     gsap.to(creature.scale, {
       x: 1,
       y: 1,
@@ -231,7 +317,6 @@ function triggerLumaMagic() {
       delay: index * 0.2,
       ease: "back.out(1.7)",
     });
-
     gsap.to(creature.position, {
       y: creature.position.y + 0.2,
       duration: 1.5 + Math.random(),
@@ -240,54 +325,90 @@ function triggerLumaMagic() {
       ease: "sine.inOut",
     });
   });
+
+  triggerTiaAnaEntrance();
 }
 
-function handleGazeSuccess(target) {
-  if (target.name === "Luma") {
-    triggerLumaMagic();
+function triggerTiaAnaEntrance() {
+  /* if (!tiaAnaModel) return;
+
+  const { idle, talk, walk } = state.animations;
+
+  if (idle && talk && walk) {
+    idle.crossFadeTo(walk, 0.5, false);
+    walk.play();
+
+    gsap.to(tiaAnaModel.position, {
+      x: 0.8,
+      y: -0.5,
+      z: -1.5,
+      duration: 3,
+      ease: "none",
+      onComplete: () => {
+        walk.crossFadeTo(talk, 0.5, false);
+        talk.play();
+      },
+    });
+  } else {
+    gsap.to(tiaAnaModel.position, {
+      x: 0.8,
+      y: -0.5,
+      z: -1.5,
+      duration: 3,
+      ease: "none",
+    });
+  }*/
+}
+
+// ==========================================
+// 6. MAIN RENDER LOOP & EVENT HANDLERS
+// ==========================================
+function animate() {
+  const delta = clock.getDelta();
+  if (state.mixer) state.mixer.update(delta);
+
+  if (lumaMesh) {
+    lumaMesh.rotation.x += 0.005;
+    lumaMesh.rotation.y += 0.005;
   }
+
+  updateRaycaster();
+  renderer.render(scene, camera);
 }
 
-// ==========================================
-// 6. MAIN ANIMATION LOOP
-// ==========================================
-renderer.setAnimationLoop(() => {
-  lumaMesh.rotation.x += 0.005;
-  lumaMesh.rotation.y += 0.005;
-
+function updateRaycaster() {
   raycaster.setFromCamera(centerScreen, camera);
-  const intersects = raycaster.intersectObjects(targets);
+  const intersects = raycaster.intersectObjects(interactableTargets);
 
   if (intersects.length > 0) {
     const hit = intersects[0].object;
-    if (currentTarget !== hit) {
-      currentTarget = hit;
-      dwellTimer = 0;
+    if (state.currentTarget !== hit) {
+      state.currentTarget = hit;
+      state.dwellTimer = 0;
     }
-    dwellTimer++;
+    state.dwellTimer++;
 
-    const progress = Math.min(1.0, dwellTimer / DWELL_THRESHOLD);
+    const progress = Math.min(1.0, state.dwellTimer / CONFIG.dwellThreshold);
     reticle.scale.set(1 + progress * 0.8, 1 + progress * 0.8, 1);
     reticleMat.color.setHex(progress >= 1.0 ? 0xffd700 : 0xffffff);
 
-    if (dwellTimer >= DWELL_THRESHOLD) {
+    if (state.dwellTimer >= CONFIG.dwellThreshold) {
       handleGazeSuccess(hit);
-      dwellTimer = 0;
+      state.dwellTimer = 0;
     }
   } else {
-    if (currentTarget) {
-      currentTarget = null;
-    }
-    dwellTimer = 0;
+    if (state.currentTarget) state.currentTarget = null;
+    state.dwellTimer = 0;
     reticle.scale.set(1, 1, 1);
     reticleMat.color.setHex(0xffffff);
   }
+}
 
-  renderer.render(scene, camera);
-});
-
-window.addEventListener("resize", () => {
+function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-});
+}
+
+init();
+/*playAndFadeIn();*/
