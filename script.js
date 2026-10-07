@@ -38,7 +38,7 @@ const interactableTargets = [];
 let tiaAnaModel;
 
 // Audio Setup
-// const lumaAudio = new Audio("./assets/luma-cinematic-voice.mp3");
+const lumaAudio = new Audio("./assets/luma-1-phrase.mp3");
 const bgMusic = new Howl({
   src: "./assets/fluteMusic.mp3",
   loop: true,
@@ -50,6 +50,13 @@ function playAndFadeIn() {
   if (!bgMusic.playing()) {
     bgMusic.play();
     bgMusic.fade(0.0, 0.25, 1700);
+  }
+}
+
+function playLuma() {
+  if (bgMusic.playing()) {
+    turnDownVolume();
+    lumaAudio.play(); //not ready yet
   }
 }
 
@@ -292,7 +299,7 @@ function triggerLumaMagic() {
   if (state.hasSpoken) return;
   state.hasSpoken = true;
 
-  // lumaAudio.play().catch((e) => console.log("Audio play requires user interaction:", e));
+  playLuma();
 
   gsap.to(lumaMesh.rotation, {
     y: Math.PI * 2,
@@ -330,7 +337,8 @@ function triggerLumaMagic() {
     });
   });
 
-  triggerTiaAnaEntrance();
+  //coloca em timeline gsap depois
+  /*triggerTiaAnaEntrance();*/
 }
 
 function triggerTiaAnaEntrance() {
