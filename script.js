@@ -200,7 +200,6 @@ function setupCoreEnvironment() {
   );
   cameraRig.add(camera);
 
-  listener = new THREE.AudioListener();
   camera.add(listener);
 }
 
