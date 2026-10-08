@@ -7,7 +7,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 // ==========================================
 const CONFIG = {
   debugMode: false,
-  invertAudio: true,
+  invertAudio: false,
   dwellThreshold: 90,
   roomTextureUrl:
     "https://res.cloudinary.com/dabshzrnj/image/upload/v1788923901/Gemini_Generated_Image_ua25woua25woua25_zjl1ii.jpg",
