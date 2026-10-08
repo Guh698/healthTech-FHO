@@ -38,7 +38,13 @@ const interactableTargets = [];
 let tiaAnaModel;
 
 // Audio Setup
-const lumaAudio = new Audio("./assets/luma-1-phrase.mp3");
+const lumaAudio1 = new Audio("./assets/luma-1-phrase.mp3");
+const lumaAudio2 = new Audio("./assets/luma-2-phrase.mp3");
+const tiaAnaAudio1 = new Audio("./assets/tiaAna-1-phrase.mp3");
+const tiaAnaAudio2 = new Audio("./assets/tiaAna-2-phrase.mp3");
+const tiaAnaAudio3 = new Audio("./assets/tiaAna-3-phrase.mp3");
+const tiaAnaAudio4 = new Audio("./assets/tiaAna-4-phrase.mp3");
+
 const bgMusic = new Howl({
   src: "./assets/fluteMusic.mp3",
   loop: true,
@@ -53,19 +59,41 @@ function playAndFadeIn() {
   }
 }
 
-function playLuma() {
-  if (bgMusic.playing()) {
-    turnDownVolume();
-    lumaAudio.play(); //not ready yet
-  }
-}
-
 function turnDownVolume() {
-  bgMusic.fade(bgMusic.volume(), 0.1, 700);
+  bgMusic.fade(bgMusic.volume(), 0.07, 700);
 }
 
 function turnUpVolume() {
-  bgMusic.fade(bgMusic.volume(), 0.25, 700);
+  bgMusic.fade(bgMusic.volume(), 0.25, 1700);
+}
+
+function playDialogue() {
+  if (bgMusic.playing()) {
+    turnDownVolume();
+
+    let DialogueTl = gsap.timeline({
+      onComplete: () => {
+        if (bgMusic.playing()) turnUpVolume; // I can do an onComplete for each phrase later.
+      },
+    });
+
+    DialogueTl.call(() => {
+      lumaAudio1.play().catch((e) => console.log("audio 1 blocked", e));
+    })
+      .to({}, { duration: 11.7 })
+      .call(() => {
+        lumaAudio2.play().catch((e) => console.log("audio 2 blocked", e));
+      })
+      .to({}, { duration: 17.13 })
+      .call(() => {
+        tiaAnaAudio1.play().catch((e) => console.log("audio 3 blocked", e));
+      })
+      .to({}, { duration: 5.7 })
+      .call(() => {
+        tiaAnaAudio2.play().catch((e) => console.log("audio 4 blocked", e));
+      })
+      .to({}, { duration: 13.3 });
+  }
 }
 
 // ==========================================
@@ -299,7 +327,7 @@ function triggerLumaMagic() {
   if (state.hasSpoken) return;
   state.hasSpoken = true;
 
-  playLuma();
+  playDialogue();
 
   gsap.to(lumaMesh.rotation, {
     y: Math.PI * 2,
