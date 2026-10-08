@@ -38,12 +38,15 @@ const interactableTargets = [];
 let tiaAnaModel;
 
 // Audio Setup
-const lumaAudio1 = new Audio("./assets/luma-1-phrase.mp3");
+/*const lumaAudio1 = new Audio("./assets/luma-1-phrase.mp3");
 const lumaAudio2 = new Audio("./assets/luma-2-phrase.mp3");
 const tiaAnaAudio1 = new Audio("./assets/tiaAna-1-phrase.mp3");
 const tiaAnaAudio2 = new Audio("./assets/tiaAna-2-phrase.mp3");
 const tiaAnaAudio3 = new Audio("./assets/tiaAna-3-phrase.mp3");
-const tiaAnaAudio4 = new Audio("./assets/tiaAna-4-phrase.mp3");
+const tiaAnaAudio4 = new Audio("./assets/tiaAna-4-phrase.mp3");*/
+let listener;
+let lumaSound1, lumaSound2;
+let tiaAnaSound1, tiaAnaSound2, tiaAnaSound3, tiaAnaSound4;
 
 const bgMusic = new Howl({
   src: "./assets/fluteMusic.mp3",
@@ -60,7 +63,7 @@ function playAndFadeIn() {
 }
 
 function turnDownVolume() {
-  bgMusic.fade(bgMusic.volume(), 0.07, 700);
+  bgMusic.fade(bgMusic.volume(), 0.05, 700);
 }
 
 function turnUpVolume() {
@@ -78,19 +81,20 @@ function playDialogue() {
     });
 
     DialogueTl.call(() => {
-      lumaAudio1.play().catch((e) => console.log("audio 1 blocked", e));
+      if (lumaSound1.buffer && !lumaSound1.isPlaying) lumaSound1.play();
     })
       .to({}, { duration: 11.7 })
       .call(() => {
-        lumaAudio2.play().catch((e) => console.log("audio 2 blocked", e));
+        if (lumaSound2.buffer && !lumaSound2.isPlaying) lumaSound2.play();
       })
       .to({}, { duration: 17.13 })
       .call(() => {
-        tiaAnaAudio1.play().catch((e) => console.log("audio 3 blocked", e));
+        // here we trigger tia ana's entrance, but later
+        if (tiaAnaSound1.buffer && !tiaAnaSound1.isPlaying) tiaAnaSound1.play();
       })
       .to({}, { duration: 5.7 })
       .call(() => {
-        tiaAnaAudio2.play().catch((e) => console.log("audio 4 blocked", e));
+        if (tiaAnaSound2.buffer && !tiaAnaSound2.isPlaying) tiaAnaSound2.play();
       })
       .to({}, { duration: 13.3 });
   }
@@ -106,6 +110,7 @@ function init() {
   setupReticle();
   setupLumaAndMagic();
   loadTiaAnaModel();
+  setupSpatialAudio();
 
   renderer.setAnimationLoop(animate);
   window.addEventListener("resize", onWindowResize);
@@ -188,6 +193,9 @@ function setupCoreEnvironment() {
     1000,
   );
   cameraRig.add(camera);
+
+  listener = new THREE.AudioListener();
+  camera.add(listener);
 }
 
 function setupLighting() {
@@ -295,6 +303,34 @@ function loadTiaAnaModel() {
     tiaAnaModel.rotation.set(0, -2.3, 0);
     scene.add(tiaAnaModel);
 
+    const audioLoader = new THREE.AudioLoader();
+    tiaAnaSound1 = new THREE.PositionalAudio(listener);
+    tiaAnaSound2 = new THREE.PositionalAudio(listener);
+    tiaAnaSound3 = new THREE.PositionalAudio(listener);
+    tiaAnaSound4 = new THREE.PositionalAudio(listener);
+
+    [tiaAnaSound1, tiaAnaSound2, tiaAnaSound3, tiaAnaSound4].forEach((s) =>
+      s.setRefDistance(1),
+    );
+
+    audioLoader.load("./assets/tiaAna-1-phrase.mp3", (buffer) =>
+      tiaAnaSound1.setBuffer(buffer),
+    );
+    audioLoader.load("./assets/tiaAna-2-phrase.mp3", (buffer) =>
+      tiaAnaSound2.setBuffer(buffer),
+    );
+    audioLoader.load("./assets/tiaAna-3-phrase.mp3", (buffer) =>
+      tiaAnaSound3.setBuffer(buffer),
+    );
+    audioLoader.load("./assets/tiaAna-4-phrase.mp3", (buffer) =>
+      tiaAnaSound4.setBuffer(buffer),
+    );
+
+    tiaAnaModel.add(tiaAnaSound1);
+    tiaAnaModel.add(tiaAnaSound2);
+    tiaAnaModel.add(tiaAnaSound3);
+    tiaAnaModel.add(tiaAnaSound4);
+
     state.mixer = new THREE.AnimationMixer(tiaAnaModel);
     const clips = gltf.animations;
 
@@ -312,6 +348,27 @@ function loadTiaAnaModel() {
       });
     }
   });
+}
+
+function setupSpatialAudio() {
+  const audioLoader = new THREE.AudioLoader();
+
+  lumaSound1 = new THREE.PositionalAudio(listener);
+  lumaSound2 = new THREE.PositionalAudio(listener);
+
+  // apparently how fast the sound fades as we move away
+  lumaSound1.setRefDistance(1);
+  lumaSound2.setRefDistance(1);
+
+  audioLoader.load("./assets/luma-1-phrase.mp3", (buffer) =>
+    lumaSound1.setBuffer(buffer),
+  );
+  audioLoader.load("./assets/luma-2-phrase.mp3", (buffer) =>
+    lumaSound2.setBuffer(buffer),
+  );
+
+  lumaGroup.add(lumaSound1);
+  lumaGroup.add(lumaSound2);
 }
 
 // ==========================================
