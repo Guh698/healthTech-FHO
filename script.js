@@ -7,6 +7,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 // ==========================================
 const CONFIG = {
   debugMode: false,
+  invertAudio: true,
   dwellThreshold: 90,
   roomTextureUrl:
     "https://res.cloudinary.com/dabshzrnj/image/upload/v1788923901/Gemini_Generated_Image_ua25woua25woua25_zjl1ii.jpg",
@@ -157,6 +158,11 @@ function setupDeviceSensors() {
 function setupCoreEnvironment() {
   scene = new THREE.Scene();
   clock = new THREE.Clock();
+  listener = new THREE.AudioListener();
+
+  if (CONFIG.invertAudio) {
+    listener.rotation.y = Math.PI;
+  }
 
   if (CONFIG.debugMode) {
     scene.background = new THREE.Color("#121418");
