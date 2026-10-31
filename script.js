@@ -8,6 +8,9 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 const CONFIG = {
   debugMode: false,
   invertAudio: false,
+  voiceVolume: 2.5,
+  voiceRefDistance: 3.5,
+  voiceRolloff: 1.0,
   dwellThreshold: 90,
   roomTextureUrl:
     "https://res.cloudinary.com/dabshzrnj/image/upload/v1788923901/Gemini_Generated_Image_ua25woua25woua25_zjl1ii.jpg",
@@ -91,6 +94,12 @@ function turnDownVolume() {
 
 function turnUpVolume() {
   bgMusic.fade(bgMusic.volume(), 0.25, 1700);
+}
+
+function configureVoiceAudio(positionalAudio) {
+  positionalAudio.setRefDistance(CONFIG.voiceRefDistance);
+  positionalAudio.setRolloffFactor(CONFIG.voiceRolloff);
+  positionalAudio.setVolume(CONFIG.voiceVolume);
 }
 
 function playDialogue() {
@@ -337,7 +346,7 @@ function loadTiaAnaModel() {
     tiaAnaSound4 = new THREE.PositionalAudio(listener);
 
     [tiaAnaSound1, tiaAnaSound2, tiaAnaSound3, tiaAnaSound4].forEach((s) =>
-      s.setRefDistance(1),
+      configureVoiceAudio(s),
     );
 
     audioLoader.load("./assets/tiaAna-1-phrase.mp3", (buffer) =>
@@ -405,9 +414,7 @@ function setupSpatialAudio() {
   lumaSound1 = new THREE.PositionalAudio(listener);
   lumaSound2 = new THREE.PositionalAudio(listener);
 
-  // apparently how fast the sound fades as we move away
-  lumaSound1.setRefDistance(1);
-  lumaSound2.setRefDistance(1);
+  [lumaSound1, lumaSound2].forEach((s) => configureVoiceAudio(s));
 
   audioLoader.load("./assets/luma-1-phrase.mp3", (buffer) =>
     lumaSound1.setBuffer(buffer),
