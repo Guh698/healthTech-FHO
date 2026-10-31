@@ -29,6 +29,28 @@ const state = {
   animations: { idle: null, talk: null, walk: null, all: [], currentIndex: 0 },
 };
 
+function fadeToAction(nextAction, duration = 0.5) {
+  if (!nextAction) {
+    console.warn("Animation action is missing/null!");
+    return;
+  }
+
+  const previousAction = state.animations.activeAction;
+
+  if (previousAction && previousAction !== nextAction) {
+    previousAction.fadeOut(duration);
+  }
+
+  nextAction
+    .reset()
+    .setEffectiveTimeScale(1)
+    .setEffectiveWeight(1)
+    .fadeIn(duration)
+    .play();
+
+  state.animations.activeAction = nextAction;
+}
+
 let scene, camera, renderer, cameraRig, clock;
 let reticle, reticleMat, raycaster;
 const centerScreen = new THREE.Vector2(0, 0);
@@ -77,7 +99,7 @@ function playDialogue() {
 
     let DialogueTl = gsap.timeline({
       onComplete: () => {
-        if (bgMusic.playing()) turnUpVolume; // I can do an onComplete for each phrase later.
+        if (bgMusic.playing()) turnUpVolume(); // I can do an onComplete for each phrase later.
       },
     });
 
@@ -337,20 +359,42 @@ function loadTiaAnaModel() {
     tiaAnaModel.add(tiaAnaSound4);
 
     state.mixer = new THREE.AnimationMixer(tiaAnaModel);
+
+    state.animations.activeAction = null;
+
     const clips = gltf.animations;
 
     if (clips.length > 0) {
-      state.animations.all = clips.map((clip) => state.mixer.clipAction(clip));
-      state.animations.all[state.animations.currentIndex].play();
+      console.log(
+        "Animation clips found in GLB:",
+        clips.map((c) => c.name),
+      );
 
-      window.addEventListener("keydown", (event) => {
-        if (event.code === "Space") {
-          state.animations.all[state.animations.currentIndex].stop();
-          state.animations.currentIndex =
-            (state.animations.currentIndex + 1) % state.animations.all.length;
-          state.animations.all[state.animations.currentIndex].play();
-        }
+      clips.forEach((clip) => {
+        const action = state.mixer.clipAction(clip);
+        const name = clip.name.toLowerCase();
+
+        if (name.includes("idle")) state.animations.idle = action;
+        if (name.includes("walk")) state.animations.walk = action;
+        if (name.includes("talk")) state.animations.talk = action;
+
+        state.animations.all.push(action);
       });
+
+      if (!state.animations.idle && state.animations.all[0]) {
+        state.animations.idle = state.animations.all[0];
+      }
+      if (!state.animations.walk && state.animations.all[1]) {
+        state.animations.walk = state.animations.all[1];
+      }
+      if (!state.animations.talk && state.animations.all[2]) {
+        state.animations.talk = state.animations.all[2];
+      }
+
+      if (state.animations.idle) {
+        state.animations.idle.play();
+        state.animations.activeAction = state.animations.idle;
+      }
     }
   });
 }
@@ -427,46 +471,43 @@ function triggerLumaMagic() {
     });
   });
 
-  //coloca em timeline gsap depois
-  /*triggerTiaAnaEntrance();*/
+  triggerTiaAnaEntrance();
 }
 
 function triggerTiaAnaEntrance() {
   if (!tiaAnaModel) return;
 
-  const { idle, talk, walk } = state.animations;
+  const entranceTimeline = gsap.timeline();
 
-  if (idle && talk && walk) {
-    idle.crossFadeTo(walk, 0.5, false);
-    walk.play();
+  entranceTimeline.call(() => {
+    fadeToAction(state.animations.walk, 0.5);
+  });
 
-    gsap.to(tiaAnaModel.position, {
-      x: 0.8,
-      y: -0.5,
-      z: -1.5,
-      duration: 3,
-      ease: "none",
-      onComplete: () => {
-        walk.crossFadeTo(talk, 0.5, false);
-        talk.play();
-      },
-    });
-  } else {
-    gsap.to(tiaAnaModel.position, {
-      x: 0.8,
-      y: -0.5,
-      z: 1,
-      duration: 3,
-      ease: "none",
-    });
-    gsap.to(tiaAnaModel.rotation, {
-      x: 0,
-      y: -0.7,
-      z: 0,
-      duration: 3,
-      ease: "none",
-    });
-  }
+  entranceTimeline.to(
+    tiaAnaModel.rotation,
+    {
+      y: Math.PI / 1,
+      duration: 0.5,
+      ease: "power2.inOut",
+    },
+    "<",
+  );
+
+  entranceTimeline.to(tiaAnaModel.position, {
+    x: 1, //3
+    z: 1, //-4
+    duration: 2,
+    ease: "none",
+    onComplete: () => {
+      fadeToAction(state.animations.talk, 0.5);
+
+      gsap.to(tiaAnaModel.rotation, {
+        y: -1,
+        duration: 0.5,
+        ease: "power2.inOut",
+      });
+    },
+  });
 }
 
 // ==========================================
