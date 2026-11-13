@@ -17,14 +17,18 @@ const CONFIG = {
 };
 
 const DOM = {
-  sensorOverlay: document.getElementById("sensor-overlay"),
-  unlockBtn: document.getElementById("unlock-btn"),
+  startScreen: document.getElementById("start-screen"),
+  startBtn: document.getElementById("start-btn"),
+  startStatus: document.getElementById("start-status"),
+  instructions: document.getElementById("instructions"),
 };
 
 // ==========================================
 // 2. GLOBAL STATE & THREE.JS CORE
 // ==========================================
 const state = {
+  started: false,
+  gyroDenied: false,
   dwellTimer: 0,
   currentTarget: null,
   hasSpoken: false,
@@ -63,13 +67,6 @@ const creatures = [];
 const interactableTargets = [];
 let tiaAnaModel;
 
-// Audio Setup
-/*const lumaAudio1 = new Audio("./assets/luma-1-phrase.mp3");
-const lumaAudio2 = new Audio("./assets/luma-2-phrase.mp3");
-const tiaAnaAudio1 = new Audio("./assets/tiaAna-1-phrase.mp3");
-const tiaAnaAudio2 = new Audio("./assets/tiaAna-2-phrase.mp3");
-const tiaAnaAudio3 = new Audio("./assets/tiaAna-3-phrase.mp3");
-const tiaAnaAudio4 = new Audio("./assets/tiaAna-4-phrase.mp3");*/
 let listener;
 let lumaSound1, lumaSound2;
 let tiaAnaSound1, tiaAnaSound2, tiaAnaSound3, tiaAnaSound4;
@@ -103,33 +100,34 @@ function configureVoiceAudio(positionalAudio) {
 }
 
 function playDialogue() {
-  if (bgMusic.playing()) {
-    turnDownVolume();
+  const musicWasOn = bgMusic.playing();
+  if (musicWasOn) turnDownVolume();
 
-    let DialogueTl = gsap.timeline({
-      onComplete: () => {
-        if (bgMusic.playing()) turnUpVolume(); // I can do an onComplete for each phrase later.
-      },
-    });
+  const DialogueTl = gsap.timeline({
+    onComplete: () => {
+      if (bgMusic.playing()) turnUpVolume(); // I can do an onComplete for each phrase later.
+    },
+  });
 
-    DialogueTl.call(() => {
-      if (lumaSound1.buffer && !lumaSound1.isPlaying) lumaSound1.play();
+  DialogueTl.call(() => {
+    if (lumaSound1.buffer && !lumaSound1.isPlaying) lumaSound1.play();
+  })
+    .to({}, { duration: 11.7 })
+    .call(() => {
+      if (lumaSound2.buffer && !lumaSound2.isPlaying) lumaSound2.play();
     })
-      .to({}, { duration: 11.7 })
-      .call(() => {
-        if (lumaSound2.buffer && !lumaSound2.isPlaying) lumaSound2.play();
-      })
-      .to({}, { duration: 17.13 })
-      .call(() => {
-        // here we trigger tia ana's entrance, but later
-        if (tiaAnaSound1.buffer && !tiaAnaSound1.isPlaying) tiaAnaSound1.play();
-      })
-      .to({}, { duration: 5.7 })
-      .call(() => {
-        if (tiaAnaSound2.buffer && !tiaAnaSound2.isPlaying) tiaAnaSound2.play();
-      })
-      .to({}, { duration: 13.3 });
-  }
+    .to({}, { duration: 17.13 })
+    .call(() => {
+      triggerTiaAnaEntrance(() => {
+        if (tiaAnaSound1.buffer && !tiaAnaSound1.isPlaying)
+          tiaAnaSound1.play();
+      });
+    })
+    .to({}, { duration: 5.7 })
+    .call(() => {
+      if (tiaAnaSound2.buffer && !tiaAnaSound2.isPlaying) tiaAnaSound2.play();
+    })
+    .to({}, { duration: 13.3 });
 }
 
 // ==========================================
@@ -143,6 +141,7 @@ function init() {
   setupLumaAndMagic();
   loadTiaAnaModel();
   setupSpatialAudio();
+  setupStartScreen();
 
   renderer.setAnimationLoop(animate);
   window.addEventListener("resize", onWindowResize);
@@ -151,39 +150,81 @@ function init() {
 // ==========================================
 // 4. SETUP FUNCTIONS
 // ==========================================
+
 function setupDeviceSensors() {
   const isQuestOrHeadset = /OculusBrowser|Quest|Pico/i.test(
     navigator.userAgent,
   );
   const isMobile = /Mobi|Android|iPhone/i.test(navigator.userAgent);
 
-  if (isQuestOrHeadset && DOM.sensorOverlay) {
-    DOM.sensorOverlay.style.display = "none";
-  } else if (isMobile) {
-    if (window.WebXRPolyfill) {
-      new window.WebXRPolyfill({ force: true });
-    }
-  } else {
-    if (DOM.sensorOverlay) DOM.sensorOverlay.style.display = "none";
+  if (!isQuestOrHeadset && isMobile && window.WebXRPolyfill) {
+    new window.WebXRPolyfill({ force: true });
   }
+}
 
-  DOM.unlockBtn?.addEventListener("click", async () => {
-    if (
-      typeof DeviceOrientationEvent !== "undefined" &&
-      typeof DeviceOrientationEvent.requestPermission === "function"
-    ) {
+function needsGyroPermission() {
+  return (
+    typeof DeviceOrientationEvent !== "undefined" &&
+    typeof DeviceOrientationEvent.requestPermission === "function"
+  );
+}
+
+function setupStartScreen() {
+  DOM.startBtn?.addEventListener("click", async () => {
+    if (state.started) return;
+
+    unlockAudio();
+
+    if (needsGyroPermission() && !state.gyroDenied) {
+      DOM.startBtn.disabled = true;
       try {
         const permission = await DeviceOrientationEvent.requestPermission();
         if (permission !== "granted") {
-          alert("Gyroscope permission denied!");
+          state.gyroDenied = true;
+          DOM.startBtn.disabled = false;
+          DOM.startBtn.textContent = "CONTINUE WITHOUT GYROSCOPE";
+          DOM.startStatus.textContent =
+            "Gyroscope was denied, so looking around won't work. You can continue anyway.";
           return;
         }
       } catch (err) {
         console.error("Gyro error:", err);
       }
+      DOM.startBtn.disabled = false;
     }
-    if (DOM.sensorOverlay) DOM.sensorOverlay.style.display = "none";
+
+    startExperience();
   });
+}
+
+function unlockAudio() {
+  try {
+    const ctx = THREE.AudioContext.getContext();
+    if (ctx.state === "suspended") ctx.resume();
+  } catch (err) {
+    console.warn("Could not resume Three.js audio context:", err);
+  }
+
+  try {
+    if (window.Howler?.ctx && window.Howler.ctx.state === "suspended") {
+      window.Howler.ctx.resume();
+    }
+  } catch (err) {
+    console.warn("Could not resume Howler audio context:", err);
+  }
+}
+
+function startExperience() {
+  state.started = true;
+
+  playAndFadeIn();
+
+  DOM.startScreen.classList.add("fade-out");
+  setTimeout(() => {
+    DOM.startScreen.style.display = "none";
+  }, 750);
+
+  DOM.instructions?.classList.remove("hidden");
 }
 
 function setupCoreEnvironment() {
@@ -334,8 +375,8 @@ function loadTiaAnaModel() {
 
   gltfLoader.load("./assets/tia-ana.glb", (gltf) => {
     tiaAnaModel = gltf.scene;
-    tiaAnaModel.scale.setScalar(1.3);
-    tiaAnaModel.position.set(1.3, -0.5, 3);
+    tiaAnaModel.scale.setScalar(1.7);
+    tiaAnaModel.position.set(3, -2, -3);
     tiaAnaModel.rotation.set(0, -2.3, 0);
     scene.add(tiaAnaModel);
 
@@ -440,6 +481,8 @@ function triggerLumaMagic() {
   if (state.hasSpoken) return;
   state.hasSpoken = true;
 
+  DOM.instructions?.classList.add("hidden");
+
   playDialogue();
 
   gsap.to(lumaMesh.rotation, {
@@ -477,12 +520,13 @@ function triggerLumaMagic() {
       ease: "sine.inOut",
     });
   });
-
-  triggerTiaAnaEntrance();
 }
 
-function triggerTiaAnaEntrance() {
-  if (!tiaAnaModel) return;
+function triggerTiaAnaEntrance(onArrive) {
+  if (!tiaAnaModel) {
+    console.warn("Tia Ana model not loaded yet, entrance skipped.");
+    return;
+  }
 
   const entranceTimeline = gsap.timeline();
 
@@ -493,20 +537,28 @@ function triggerTiaAnaEntrance() {
   entranceTimeline.to(
     tiaAnaModel.rotation,
     {
-      y: Math.PI / 1,
+      y: Math.PI,
       duration: 0.5,
       ease: "power2.inOut",
     },
     "<",
   );
 
+  entranceTimeline.to(tiaAnaModel.rotation, {
+    y: -0.5,
+    duration: 0.3,
+    ease: "none",
+  });
+
   entranceTimeline.to(tiaAnaModel.position, {
     x: 1, //3
     z: 1, //-4
+    y: -0.5,
     duration: 2,
     ease: "none",
     onComplete: () => {
       fadeToAction(state.animations.talk, 0.5);
+      if (onArrive) onArrive();
 
       gsap.to(tiaAnaModel.rotation, {
         y: -1,
@@ -515,6 +567,18 @@ function triggerTiaAnaEntrance() {
       });
     },
   });
+
+  entranceTimeline.to(
+    tiaAnaModel.scale,
+    {
+      x: 1.3,
+      y: 1.3,
+      z: 1.3,
+      duration: 2,
+      ease: "none",
+    },
+    "<",
+  );
 }
 
 // ==========================================
@@ -529,7 +593,8 @@ function animate() {
     lumaMesh.rotation.y += 0.005;
   }
 
-  updateRaycaster();
+  if (state.started) updateRaycaster();
+
   renderer.render(scene, camera);
 }
 
@@ -568,4 +633,3 @@ function onWindowResize() {
 }
 
 init();
-playAndFadeIn();

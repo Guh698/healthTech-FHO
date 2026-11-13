@@ -7,11 +7,18 @@
     <title>Healthtech Project</title>
   </head>
   <body>
-    <div id="sensor-overlay">
-      <h1>Unlock Phone Sensors</h1>
-      <button id="unlock-btn">ALLOW GYROSCOPE</button>
+    <div id="start-screen">
+      <h1>Healthtech Project</h1>
+      <p class="subtitle">An immersive experience</p>
+      <p class="hint">Headphones recommended</p>
+      <button id="start-btn">START EXPERIENCE</button>
+      <p id="start-status"></p>
     </div>
-    <div id="instructions">Look at a sphere for 1.5s to trigger it</div>
+
+    <div id="instructions" class="hidden">
+      Look at a sphere for 1.5s to trigger it
+    </div>
+
     <script type="importmap">
       {
         "imports": {

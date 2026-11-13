@@ -4,9 +4,11 @@ body {
   background: #111;
   font-family: sans-serif;
 }
+
 canvas {
   display: block;
 }
+
 #instructions {
   position: absolute;
   top: 20px;
@@ -19,27 +21,60 @@ canvas {
   font-size: 14px;
   pointer-events: none;
   z-index: 10;
+  opacity: 1;
+  transition: opacity 0.8s ease;
 }
-#sensor-overlay {
+
+#instructions.hidden {
+  opacity: 0;
+}
+
+#start-screen {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: #000;
+  background: radial-gradient(circle at 50% 40%, #12202a 0%, #000 70%);
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  z-index: 9999;
-}
-#sensor-overlay h1 {
-  color: #fff;
+  padding: 24px;
+  box-sizing: border-box;
   text-align: center;
-  margin-bottom: 30px;
-  font-family: sans-serif;
+  z-index: 9999;
+  opacity: 1;
+  transition: opacity 0.7s ease;
 }
-#unlock-btn {
+
+#start-screen.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#start-screen h1 {
+  color: #fff;
+  margin: 0 0 8px;
+  font-size: clamp(28px, 6vw, 48px);
+  letter-spacing: 1px;
+}
+
+#start-screen .subtitle {
+  color: #00ffff;
+  margin: 0 0 36px;
+  font-size: 16px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+#start-screen .hint {
+  color: #aaa;
+  margin: 0 0 20px;
+  font-size: 14px;
+}
+
+#start-btn {
   padding: 15px 40px;
   font-size: 18px;
   font-weight: bold;
@@ -50,6 +85,20 @@ canvas {
   cursor: pointer;
   transition: transform 0.2s;
 }
-#unlock-btn:active {
+
+#start-btn:active {
   transform: scale(0.95);
+}
+
+#start-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+#start-status {
+  color: #ffb347;
+  font-size: 14px;
+  max-width: 320px;
+  min-height: 20px;
+  margin: 18px 0 0;
 }
