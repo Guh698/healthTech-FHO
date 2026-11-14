@@ -118,9 +118,11 @@ function playDialogue() {
     })
     .to({}, { duration: 17.13 })
     .call(() => {
+      if (!tiaAnaModel) return;
+      DialogueTl.pause();
       triggerTiaAnaEntrance(() => {
-        if (tiaAnaSound1.buffer && !tiaAnaSound1.isPlaying)
-          tiaAnaSound1.play();
+        if (tiaAnaSound1.buffer && !tiaAnaSound1.isPlaying) tiaAnaSound1.play();
+        DialogueTl.resume();
       });
     })
     .to({}, { duration: 5.7 })
