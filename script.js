@@ -12,6 +12,19 @@ const CONFIG = {
   voiceRefDistance: 3.5,
   voiceRolloff: 1.0,
   dwellThreshold: 90,
+  walkSpeed: 1.5,
+  walkRamp: 0.25,
+  blendTime: 0.8,
+  turnTime: 0.8,
+  stopFacingOffset: -0.4,
+  walkDirection: 1,
+  lookPointPosition: { x: -3, y: 1.4, z: -1.5 },
+  vaccineDistance: 0.9,
+  lockBlendTime: 0.8,
+  walkPlan: {
+    phrase3: [0.25],
+    phrase4: [0, -0.25],
+  },
   roomTextureUrl:
     "https://res.cloudinary.com/dabshzrnj/image/upload/v1788923901/Gemini_Generated_Image_ua25woua25woua25_zjl1ii.jpg",
 };
@@ -32,6 +45,11 @@ const state = {
   dwellTimer: 0,
   currentTarget: null,
   hasSpoken: false,
+  vaccineStarted: false,
+  lookPointActive: false,
+  viewLockOn: false,
+  viewLockWeight: 0,
+  viewLockQuat: null,
   mixer: null,
   animations: { idle: null, talk: null, walk: null, all: [], currentIndex: 0 },
 };
@@ -70,6 +88,10 @@ let tiaAnaModel;
 let listener;
 let lumaSound1, lumaSound2;
 let tiaAnaSound1, tiaAnaSound2, tiaAnaSound3, tiaAnaSound4;
+let tiaAnaSound5, tiaAnaSound6;
+let lookPoint, lookRing, lookHit;
+const lockTarget = new THREE.Quaternion();
+const headInverse = new THREE.Quaternion();
 
 const bgMusic = new Howl({
   src: "./assets/fluteMusic.mp3",
@@ -99,6 +121,10 @@ function configureVoiceAudio(positionalAudio) {
   positionalAudio.setVolume(CONFIG.voiceVolume);
 }
 
+function voiceLength(sound, fallback) {
+  return sound?.buffer?.duration ?? fallback;
+}
+
 function playDialogue() {
   const musicWasOn = bgMusic.playing();
   if (musicWasOn) turnDownVolume();
@@ -119,7 +145,9 @@ function playDialogue() {
     .to({}, { duration: 17.13 })
     .call(() => {
       if (!tiaAnaModel) return;
+
       DialogueTl.pause();
+
       triggerTiaAnaEntrance(() => {
         if (tiaAnaSound1.buffer && !tiaAnaSound1.isPlaying) tiaAnaSound1.play();
         DialogueTl.resume();
@@ -129,7 +157,27 @@ function playDialogue() {
     .call(() => {
       if (tiaAnaSound2.buffer && !tiaAnaSound2.isPlaying) tiaAnaSound2.play();
     })
-    .to({}, { duration: 13.3 });
+    .to({}, { duration: voiceLength(tiaAnaSound2, 13.87) + 0.3 })
+    .call(() => {
+      walkAroundWhileTalking(
+        CONFIG.walkPlan.phrase3,
+        voiceLength(tiaAnaSound3, 10.61),
+      );
+      if (tiaAnaSound3.buffer && !tiaAnaSound3.isPlaying) tiaAnaSound3.play();
+    })
+    .to({}, { duration: voiceLength(tiaAnaSound3, 10.61) + 0.3 })
+    .call(() => {
+      walkAroundWhileTalking(
+        CONFIG.walkPlan.phrase4,
+        voiceLength(tiaAnaSound4, 16.51),
+      );
+      if (tiaAnaSound4.buffer && !tiaAnaSound4.isPlaying) tiaAnaSound4.play();
+    })
+    .to({}, { duration: voiceLength(tiaAnaSound4, 16.51) })
+    .call(() => {
+      settleIdle();
+      showLookPoint();
+    });
 }
 
 // ==========================================
@@ -141,6 +189,7 @@ function init() {
   setupLighting();
   setupReticle();
   setupLumaAndMagic();
+  setupLookPoint();
   loadTiaAnaModel();
   setupSpatialAudio();
   setupStartScreen();
@@ -387,10 +436,17 @@ function loadTiaAnaModel() {
     tiaAnaSound2 = new THREE.PositionalAudio(listener);
     tiaAnaSound3 = new THREE.PositionalAudio(listener);
     tiaAnaSound4 = new THREE.PositionalAudio(listener);
+    tiaAnaSound5 = new THREE.PositionalAudio(listener);
+    tiaAnaSound6 = new THREE.PositionalAudio(listener);
 
-    [tiaAnaSound1, tiaAnaSound2, tiaAnaSound3, tiaAnaSound4].forEach((s) =>
-      configureVoiceAudio(s),
-    );
+    [
+      tiaAnaSound1,
+      tiaAnaSound2,
+      tiaAnaSound3,
+      tiaAnaSound4,
+      tiaAnaSound5,
+      tiaAnaSound6,
+    ].forEach((s) => configureVoiceAudio(s));
 
     audioLoader.load("./assets/tiaAna-1-phrase.mp3", (buffer) =>
       tiaAnaSound1.setBuffer(buffer),
@@ -404,11 +460,15 @@ function loadTiaAnaModel() {
     audioLoader.load("./assets/tiaAna-4-phrase.mp3", (buffer) =>
       tiaAnaSound4.setBuffer(buffer),
     );
+    loadVoice(audioLoader, tiaAnaSound5, "./assets/tiaAna-5-phrase.mp3");
+    loadVoice(audioLoader, tiaAnaSound6, "./assets/tiaAna-6-phrase.mp3");
 
     tiaAnaModel.add(tiaAnaSound1);
     tiaAnaModel.add(tiaAnaSound2);
     tiaAnaModel.add(tiaAnaSound3);
     tiaAnaModel.add(tiaAnaSound4);
+    tiaAnaModel.add(tiaAnaSound5);
+    tiaAnaModel.add(tiaAnaSound6);
 
     state.mixer = new THREE.AnimationMixer(tiaAnaModel);
 
@@ -470,12 +530,70 @@ function setupSpatialAudio() {
   lumaGroup.add(lumaSound2);
 }
 
+function loadVoice(audioLoader, sound, url) {
+  audioLoader.load(
+    url,
+    (buffer) => sound.setBuffer(buffer),
+    undefined,
+    () => console.warn(`Audio not found yet: ${url}`),
+  );
+}
+
+function setupLookPoint() {
+  const p = CONFIG.lookPointPosition;
+  lookPoint = new THREE.Group();
+  lookPoint.position.set(p.x, p.y, p.z);
+  lookPoint.scale.setScalar(0);
+  lookPoint.visible = false;
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 24, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.9,
+    }),
+  );
+
+  lookRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.22, 0.26, 48),
+    new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.6,
+      side: THREE.DoubleSide,
+    }),
+  );
+
+  lookHit = new THREE.Mesh(
+    new THREE.SphereGeometry(0.5, 16, 16),
+    new THREE.MeshBasicMaterial({ visible: false }),
+  );
+  lookHit.name = "LookPoint";
+
+  lookPoint.add(core, lookRing, lookHit);
+  scene.add(lookPoint);
+
+  gsap.to(lookRing.scale, {
+    x: 1.3,
+    y: 1.3,
+    z: 1.3,
+    duration: 1.2,
+    yoyo: true,
+    repeat: -1,
+    ease: "sine.inOut",
+  });
+}
+
 // ==========================================
 // 5. INTERACTION & ANIMATION LOGIC
 // ==========================================
 function handleGazeSuccess(hitObject) {
   if (hitObject.name === "Luma") {
     triggerLumaMagic();
+  }
+  if (hitObject.name === "LookPoint") {
+    startVaccineSequence();
   }
 }
 
@@ -583,6 +701,304 @@ function triggerTiaAnaEntrance(onArrive) {
   );
 }
 
+let orbit = null;
+
+function wrapAngle(a) {
+  return Math.atan2(Math.sin(a), Math.cos(a));
+}
+
+function walkEase(t, ramp = CONFIG.walkRamp) {
+  if (ramp <= 0) return t;
+  const v = 1 / (1 - ramp);
+  if (t < ramp) return (v * t * t) / (2 * ramp);
+  if (t > 1 - ramp) {
+    const u = 1 - t;
+    return 1 - (v * u * u) / (2 * ramp);
+  }
+  return v * (t - ramp / 2);
+}
+
+function initOrbit() {
+  const center = cameraRig.position;
+  const dx = tiaAnaModel.position.x - center.x;
+  const dz = tiaAnaModel.position.z - center.z;
+  const angle = Math.atan2(dx, dz);
+  orbit = {
+    angle,
+    base: angle,
+    radius: Math.hypot(dx, dz),
+    sign: 1,
+    steer: false,
+    tl: null,
+    lastTime: performance.now(),
+  };
+}
+
+function walkHeadingAt(angle, sign) {
+  return Math.atan2(sign * Math.cos(angle), -sign * Math.sin(angle));
+}
+
+function viewerHeadingAt(angle) {
+  return (
+    Math.atan2(-Math.sin(angle), -Math.cos(angle)) + CONFIG.stopFacingOffset
+  );
+}
+
+function turnTo(targetY, duration, onComplete) {
+  gsap.killTweensOf(tiaAnaModel.rotation);
+  gsap.to(tiaAnaModel.rotation, {
+    y: tiaAnaModel.rotation.y + wrapAngle(targetY - tiaAnaModel.rotation.y),
+    duration,
+    ease: "power2.inOut",
+    onComplete,
+  });
+}
+
+function applyOrbitPose() {
+  const center = cameraRig.position;
+  const a = orbit.angle;
+  tiaAnaModel.position.x = center.x + Math.sin(a) * orbit.radius;
+  tiaAnaModel.position.z = center.z + Math.cos(a) * orbit.radius;
+
+  const now = performance.now();
+  const dt = (now - orbit.lastTime) / 1000;
+  orbit.lastTime = now;
+
+  if (orbit.steer) {
+    const target = walkHeadingAt(a, orbit.sign);
+    const k = 1 - Math.exp(-10 * dt);
+    tiaAnaModel.rotation.y += wrapAngle(target - tiaAnaModel.rotation.y) * k;
+  }
+}
+
+function startWalking(leg) {
+  orbit.steer = false;
+  orbit.sign = leg.sign;
+  fadeToAction(state.animations.walk, CONFIG.blendTime);
+  turnTo(walkHeadingAt(orbit.angle, leg.sign), CONFIG.turnTime, () => {
+    orbit.steer = true;
+    orbit.lastTime = performance.now();
+  });
+}
+
+function stopAndTalk(stopAngle) {
+  orbit.steer = false;
+  turnTo(viewerHeadingAt(stopAngle), CONFIG.turnTime);
+  fadeToAction(state.animations.talk, CONFIG.blendTime);
+}
+
+function settleIdle() {
+  if (!tiaAnaModel) return;
+  orbit?.tl?.kill();
+  if (orbit) {
+    orbit.steer = false;
+    turnTo(viewerHeadingAt(orbit.angle), CONFIG.turnTime);
+  }
+  fadeToAction(state.animations.idle, CONFIG.blendTime);
+}
+
+function walkAroundWhileTalking(fractions, phraseDuration) {
+  if (!tiaAnaModel) {
+    console.warn("Tia Ana model not loaded yet, walk skipped.");
+    return;
+  }
+  if (!orbit) initOrbit();
+  orbit.tl?.kill();
+  orbit.steer = false;
+
+  const legs = [];
+  let from = orbit.angle;
+  for (const f of fractions) {
+    const to = orbit.base + CONFIG.walkDirection * f * Math.PI * 2;
+    const distance = Math.abs(to - from) * orbit.radius;
+    if (distance > 0.01) {
+      legs.push({
+        to,
+        sign: Math.sign(to - from),
+        duration: distance / (CONFIG.walkSpeed * (1 - CONFIG.walkRamp)),
+      });
+    }
+    from = to;
+  }
+
+  if (legs.length === 0) {
+    stopAndTalk(orbit.angle);
+    return;
+  }
+
+  const lead = CONFIG.turnTime * 0.5;
+  const busy = legs.reduce((sum, leg) => sum + lead + leg.duration, 0);
+  const talkPause = Math.max(0, (phraseDuration - busy) / legs.length);
+
+  const tl = gsap.timeline();
+  orbit.tl = tl;
+
+  let t = 0;
+  legs.forEach((leg) => {
+    tl.call(() => startWalking(leg), null, t);
+    tl.to(
+      orbit,
+      {
+        angle: leg.to,
+        duration: leg.duration,
+        ease: (p) => walkEase(p),
+        onStart: () => {
+          orbit.lastTime = performance.now();
+        },
+        onUpdate: applyOrbitPose,
+      },
+      t + lead,
+    );
+    tl.call(
+      () => stopAndTalk(leg.to),
+      null,
+      t + lead + leg.duration * (1 - CONFIG.walkRamp),
+    );
+    t += lead + leg.duration + talkPause;
+  });
+}
+
+function showLookPoint() {
+  if (!lookPoint || state.lookPointActive) return;
+  state.lookPointActive = true;
+  lookPoint.visible = true;
+  interactableTargets.push(lookHit);
+
+  gsap.to(lookPoint.scale, {
+    x: 1,
+    y: 1,
+    z: 1,
+    duration: 1.2,
+    ease: "back.out(1.7)",
+  });
+
+  if (tiaAnaSound5?.buffer && !tiaAnaSound5.isPlaying) tiaAnaSound5.play();
+}
+
+function hideLookPoint() {
+  const i = interactableTargets.indexOf(lookHit);
+  if (i !== -1) interactableTargets.splice(i, 1);
+
+  gsap.to(lookPoint.scale, {
+    x: 0,
+    y: 0,
+    z: 0,
+    duration: 0.8,
+    ease: "power2.in",
+    onComplete: () => {
+      lookPoint.visible = false;
+    },
+  });
+}
+
+function setViewLock(on) {
+  if (on)
+    state.viewLockQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+  state.viewLockOn = on;
+  gsap.killTweensOf(state);
+  gsap.to(state, {
+    viewLockWeight: on ? 1 : 0,
+    duration: CONFIG.lockBlendTime,
+    ease: "sine.inOut",
+  });
+}
+
+function updateViewLock() {
+  if (!state.viewLockQuat) return;
+
+  if (!state.viewLockOn && state.viewLockWeight <= 0) {
+    cameraRig.quaternion.identity();
+    state.viewLockQuat = null;
+    return;
+  }
+
+  const head = renderer.xr.isPresenting
+    ? renderer.xr.getCamera().quaternion
+    : camera.quaternion;
+  lockTarget.copy(state.viewLockQuat).multiply(headInverse.copy(head).invert());
+  cameraRig.quaternion.identity().slerp(lockTarget, state.viewLockWeight);
+}
+
+function walkBehindViewer(onArrive) {
+  if (!tiaAnaModel) {
+    console.warn("Tia Ana model not loaded yet, walk skipped.");
+    onArrive?.();
+    return;
+  }
+  if (!orbit) initOrbit();
+  orbit.tl?.kill();
+  orbit.steer = false;
+
+  const look = camera.getWorldDirection(new THREE.Vector3());
+  const frontAngle = Math.atan2(look.x, look.z);
+  const backAngle = frontAngle + Math.PI;
+
+  const delta = wrapAngle(backAngle - orbit.angle);
+
+  const distance = Math.hypot(
+    delta * orbit.radius,
+    orbit.radius - CONFIG.vaccineDistance,
+  );
+  const leg = {
+    to: orbit.angle + delta,
+    sign: Math.sign(delta) || 1,
+    duration: Math.max(
+      0.5,
+      distance / (CONFIG.walkSpeed * (1 - CONFIG.walkRamp)),
+    ),
+  };
+  const lead = CONFIG.turnTime * 0.5;
+
+  const tl = gsap.timeline();
+  orbit.tl = tl;
+
+  tl.call(() => startWalking(leg), null, 0)
+    .to(
+      orbit,
+      {
+        angle: leg.to,
+        radius: CONFIG.vaccineDistance,
+        duration: leg.duration,
+        ease: (p) => walkEase(p),
+        onStart: () => {
+          orbit.lastTime = performance.now();
+        },
+        onUpdate: applyOrbitPose,
+      },
+      lead,
+    )
+    .call(
+      () => stopAndTalk(leg.to),
+      null,
+      lead + leg.duration * (1 - CONFIG.walkRamp),
+    )
+    .call(
+      () => onArrive?.(),
+      null,
+      lead + leg.duration + CONFIG.turnTime * 0.5,
+    );
+}
+
+function startVaccineSequence() {
+  if (state.vaccineStarted) return;
+  state.vaccineStarted = true;
+
+  hideLookPoint();
+  setViewLock(true);
+  if (bgMusic.playing()) turnDownVolume();
+
+  walkBehindViewer(() => {
+    if (tiaAnaSound6?.buffer && !tiaAnaSound6.isPlaying) tiaAnaSound6.play();
+    gsap.delayedCall(voiceLength(tiaAnaSound6, 12), finishVaccine);
+  });
+}
+
+function finishVaccine() {
+  setViewLock(false);
+  settleIdle();
+  if (bgMusic.playing()) turnUpVolume();
+}
+
 // ==========================================
 // 6. MAIN RENDER LOOP & EVENT HANDLERS
 // ==========================================
@@ -594,6 +1010,9 @@ function animate() {
     lumaMesh.rotation.x += 0.005;
     lumaMesh.rotation.y += 0.005;
   }
+
+  updateViewLock();
+  if (lookPoint?.visible) lookPoint.lookAt(cameraRig.position);
 
   if (state.started) updateRaycaster();
 
