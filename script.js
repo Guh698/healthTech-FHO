@@ -18,7 +18,8 @@ const CONFIG = {
   turnTime: 0.8,
   stopFacingOffset: -0.4,
   walkDirection: 1,
-  lookPointPosition: { x: -3, y: 1.4, z: -1.5 },
+  lumaStartDelay: 2.5,
+  lumaLookPosition: { x: -1.5, y: 1.3, z: 0.5 },
   vaccineDistance: 0.9,
   lockBlendTime: 0.8,
   walkPlan: {
@@ -46,7 +47,7 @@ const state = {
   currentTarget: null,
   hasSpoken: false,
   vaccineStarted: false,
-  lookPointActive: false,
+  lumaTargetActive: false,
   viewLockOn: false,
   viewLockWeight: 0,
   viewLockQuat: null,
@@ -81,7 +82,6 @@ let reticle, reticleMat, raycaster;
 const centerScreen = new THREE.Vector2(0, 0);
 
 let lumaMesh, lumaGroup, magicShield;
-const creatures = [];
 const interactableTargets = [];
 let tiaAnaModel;
 
@@ -89,7 +89,7 @@ let listener;
 let lumaSound1, lumaSound2;
 let tiaAnaSound1, tiaAnaSound2, tiaAnaSound3, tiaAnaSound4;
 let tiaAnaSound5, tiaAnaSound6;
-let lookPoint, lookRing, lookHit;
+let lumaRing, lumaHit, lumaFloatTween;
 const lockTarget = new THREE.Quaternion();
 const headInverse = new THREE.Quaternion();
 
@@ -144,11 +144,15 @@ function playDialogue() {
     })
     .to({}, { duration: 17.13 })
     .call(() => {
-      if (!tiaAnaModel) return;
+      if (!tiaAnaModel) {
+        hideLumaRing();
+        return;
+      }
 
       DialogueTl.pause();
 
       triggerTiaAnaEntrance(() => {
+        hideLumaRing();
         if (tiaAnaSound1.buffer && !tiaAnaSound1.isPlaying) tiaAnaSound1.play();
         DialogueTl.resume();
       });
@@ -176,7 +180,7 @@ function playDialogue() {
     .to({}, { duration: voiceLength(tiaAnaSound4, 16.51) })
     .call(() => {
       settleIdle();
-      showLookPoint();
+      showLumaAsTarget();
     });
 }
 
@@ -189,7 +193,6 @@ function init() {
   setupLighting();
   setupReticle();
   setupLumaAndMagic();
-  setupLookPoint();
   loadTiaAnaModel();
   setupSpatialAudio();
   setupStartScreen();
@@ -269,13 +272,14 @@ function startExperience() {
   state.started = true;
 
   playAndFadeIn();
+  showLumaRing();
 
   DOM.startScreen.classList.add("fade-out");
   setTimeout(() => {
     DOM.startScreen.style.display = "none";
   }, 750);
 
-  DOM.instructions?.classList.remove("hidden");
+  gsap.delayedCall(CONFIG.lumaStartDelay, triggerLumaMagic);
 }
 
 function setupCoreEnvironment() {
@@ -348,11 +352,40 @@ function setupReticle() {
   camera.add(reticle);
 }
 
+function createStarGeometry(
+  outerRadius = 0.22,
+  innerRadius = 0.09,
+  depth = 0.06,
+) {
+  const shape = new THREE.Shape();
+  const spikes = 5;
+
+  for (let i = 0; i < spikes * 2; i++) {
+    const radius = i % 2 === 0 ? outerRadius : innerRadius;
+    const angle = (i / (spikes * 2)) * Math.PI * 2 + Math.PI / 2;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: true,
+    bevelThickness: 0.015,
+    bevelSize: 0.012,
+    bevelSegments: 2,
+  });
+  geometry.center();
+  return geometry;
+}
+
 function setupLumaAndMagic() {
   lumaGroup = new THREE.Group();
   lumaGroup.position.set(0, 1.4, 1.5);
 
-  const lumaGeo = new THREE.IcosahedronGeometry(0.15, 0);
+  const lumaGeo = createStarGeometry();
   const lumaMat = new THREE.MeshStandardMaterial({
     color: 0xffd700,
     emissive: 0xffaa00,
@@ -365,8 +398,26 @@ function setupLumaAndMagic() {
   lumaGroup.add(lumaMesh);
   lumaGroup.add(new THREE.PointLight(0xffd700, 2, 5));
 
+  lumaHit = new THREE.Mesh(
+    new THREE.SphereGeometry(0.5, 16, 16),
+    new THREE.MeshBasicMaterial({ visible: false }),
+  );
+  lumaHit.name = "Luma";
+  lumaGroup.add(lumaHit);
+
+  lumaRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.3, 0.34, 48),
+    new THREE.MeshBasicMaterial({
+      color: 0xffd700,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+    }),
+  );
+  lumaRing.visible = false;
+  lumaGroup.add(lumaRing);
+
   scene.add(lumaGroup);
-  interactableTargets.push(lumaMesh);
 
   const shieldGeo = new THREE.SphereGeometry(2, 32, 32);
   const shieldMat = new THREE.MeshBasicMaterial({
@@ -378,31 +429,6 @@ function setupLumaAndMagic() {
   magicShield = new THREE.Mesh(shieldGeo, shieldMat);
   cameraRig.add(magicShield);
 
-  const creaturesGroup = new THREE.Group();
-  scene.add(creaturesGroup);
-
-  const creatureGeo = new THREE.TetrahedronGeometry(0.05, 1);
-  const creatureMat = new THREE.MeshStandardMaterial({
-    color: 0x00ffff,
-    emissive: 0x0088ff,
-    emissiveIntensity: 0,
-    transparent: true,
-    opacity: 0,
-    flatShading: true,
-  });
-
-  for (let i = 0; i < 5; i++) {
-    const creature = new THREE.Mesh(creatureGeo, creatureMat.clone());
-    creature.position.set(
-      (Math.random() - 0.5) * 2,
-      1.0 + Math.random() * 0.5,
-      -1.5 + (Math.random() - 0.5),
-    );
-    creature.scale.setScalar(0.1);
-    creaturesGroup.add(creature);
-    creatures.push(creature);
-  }
-
   gsap.to(lumaMesh.scale, {
     x: 1.15,
     y: 1.15,
@@ -412,9 +438,18 @@ function setupLumaAndMagic() {
     repeat: -1,
     ease: "sine.inOut",
   });
-  gsap.to(lumaGroup.position, {
+  lumaFloatTween = gsap.to(lumaGroup.position, {
     y: 1.5,
     duration: 2.5,
+    yoyo: true,
+    repeat: -1,
+    ease: "sine.inOut",
+  });
+  gsap.to(lumaRing.scale, {
+    x: 1.3,
+    y: 1.3,
+    z: 1.3,
+    duration: 1.2,
     yoyo: true,
     repeat: -1,
     ease: "sine.inOut",
@@ -539,60 +574,11 @@ function loadVoice(audioLoader, sound, url) {
   );
 }
 
-function setupLookPoint() {
-  const p = CONFIG.lookPointPosition;
-  lookPoint = new THREE.Group();
-  lookPoint.position.set(p.x, p.y, p.z);
-  lookPoint.scale.setScalar(0);
-  lookPoint.visible = false;
-
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(0.12, 24, 24),
-    new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.9,
-    }),
-  );
-
-  lookRing = new THREE.Mesh(
-    new THREE.RingGeometry(0.22, 0.26, 48),
-    new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.6,
-      side: THREE.DoubleSide,
-    }),
-  );
-
-  lookHit = new THREE.Mesh(
-    new THREE.SphereGeometry(0.5, 16, 16),
-    new THREE.MeshBasicMaterial({ visible: false }),
-  );
-  lookHit.name = "LookPoint";
-
-  lookPoint.add(core, lookRing, lookHit);
-  scene.add(lookPoint);
-
-  gsap.to(lookRing.scale, {
-    x: 1.3,
-    y: 1.3,
-    z: 1.3,
-    duration: 1.2,
-    yoyo: true,
-    repeat: -1,
-    ease: "sine.inOut",
-  });
-}
-
 // ==========================================
 // 5. INTERACTION & ANIMATION LOGIC
 // ==========================================
 function handleGazeSuccess(hitObject) {
   if (hitObject.name === "Luma") {
-    triggerLumaMagic();
-  }
-  if (hitObject.name === "LookPoint") {
     startVaccineSequence();
   }
 }
@@ -600,8 +586,6 @@ function handleGazeSuccess(hitObject) {
 function triggerLumaMagic() {
   if (state.hasSpoken) return;
   state.hasSpoken = true;
-
-  DOM.instructions?.classList.add("hidden");
 
   playDialogue();
 
@@ -615,30 +599,6 @@ function triggerLumaMagic() {
     opacity: 0.0, //so weird yet haha
     duration: 2,
     ease: "sine.inOut",
-  });
-
-  creatures.forEach((creature, index) => {
-    gsap.to(creature.material, {
-      opacity: 1,
-      emissiveIntensity: 1.5,
-      duration: 1,
-      delay: index * 0.2,
-    });
-    gsap.to(creature.scale, {
-      x: 1,
-      y: 1,
-      z: 1,
-      duration: 1,
-      delay: index * 0.2,
-      ease: "back.out(1.7)",
-    });
-    gsap.to(creature.position, {
-      y: creature.position.y + 0.2,
-      duration: 1.5 + Math.random(),
-      yoyo: true,
-      repeat: -1,
-      ease: "sine.inOut",
-    });
   });
 }
 
@@ -858,37 +818,63 @@ function walkAroundWhileTalking(fractions, phraseDuration) {
   });
 }
 
-function showLookPoint() {
-  if (!lookPoint || state.lookPointActive) return;
-  state.lookPointActive = true;
-  lookPoint.visible = true;
-  interactableTargets.push(lookHit);
-
-  gsap.to(lookPoint.scale, {
-    x: 1,
-    y: 1,
-    z: 1,
-    duration: 1.2,
-    ease: "back.out(1.7)",
-  });
-
-  if (tiaAnaSound5?.buffer && !tiaAnaSound5.isPlaying) tiaAnaSound5.play();
+function showLumaRing() {
+  gsap.killTweensOf(lumaRing.material);
+  lumaRing.visible = true;
+  gsap.to(lumaRing.material, { opacity: 0.7, duration: 0.8 });
 }
 
-function hideLookPoint() {
-  const i = interactableTargets.indexOf(lookHit);
-  if (i !== -1) interactableTargets.splice(i, 1);
-
-  gsap.to(lookPoint.scale, {
-    x: 0,
-    y: 0,
-    z: 0,
-    duration: 0.8,
-    ease: "power2.in",
+function hideLumaRing() {
+  gsap.killTweensOf(lumaRing.material);
+  gsap.to(lumaRing.material, {
+    opacity: 0,
+    duration: 0.6,
     onComplete: () => {
-      lookPoint.visible = false;
+      lumaRing.visible = false;
     },
   });
+}
+
+function showLumaAsTarget() {
+  if (state.lumaTargetActive) return;
+  state.lumaTargetActive = true;
+
+  if (tiaAnaSound5?.buffer && !tiaAnaSound5.isPlaying) tiaAnaSound5.play();
+
+  const p = CONFIG.lumaLookPosition;
+  lumaFloatTween?.kill();
+
+  gsap.to(lumaGroup.position, {
+    x: p.x,
+    y: p.y,
+    z: p.z,
+    duration: 2.5,
+    ease: "power2.inOut",
+    onComplete: () => {
+      lumaFloatTween = gsap.to(lumaGroup.position, {
+        y: p.y + 0.1,
+        duration: 2.5,
+        yoyo: true,
+        repeat: -1,
+        ease: "sine.inOut",
+      });
+
+      interactableTargets.push(lumaHit);
+      showLumaRing();
+
+      if (DOM.instructions) {
+        DOM.instructions.textContent = "Look at the star to continue";
+        DOM.instructions.classList.remove("hidden");
+      }
+    },
+  });
+}
+
+function hideLumaTarget() {
+  const i = interactableTargets.indexOf(lumaHit);
+  if (i !== -1) interactableTargets.splice(i, 1);
+  DOM.instructions?.classList.add("hidden");
+  hideLumaRing();
 }
 
 function setViewLock(on) {
@@ -983,7 +969,7 @@ function startVaccineSequence() {
   if (state.vaccineStarted) return;
   state.vaccineStarted = true;
 
-  hideLookPoint();
+  hideLumaTarget();
   setViewLock(true);
   if (bgMusic.playing()) turnDownVolume();
 
@@ -1006,13 +992,12 @@ function animate() {
   const delta = clock.getDelta();
   if (state.mixer) state.mixer.update(delta);
 
-  if (lumaMesh) {
-    lumaMesh.rotation.x += 0.005;
-    lumaMesh.rotation.y += 0.005;
+  if (lumaGroup) {
+    lumaGroup.lookAt(cameraRig.position);
+    lumaMesh.rotation.z = Math.sin(clock.elapsedTime * 1.2) * 0.15;
   }
 
   updateViewLock();
-  if (lookPoint?.visible) lookPoint.lookAt(cameraRig.position);
 
   if (state.started) updateRaycaster();
 

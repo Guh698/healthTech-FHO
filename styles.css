@@ -60,14 +60,6 @@ canvas {
   letter-spacing: 1px;
 }
 
-#start-screen .subtitle {
-  color: #00ffff;
-  margin: 0 0 36px;
-  font-size: 16px;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-}
-
 #start-screen .hint {
   color: #aaa;
   margin: 0 0 20px;
