@@ -21,6 +21,7 @@ const CONFIG = {
   lumaStartDelay: 2.5,
   lumaLookPosition: { x: -1.5, y: 1.3, z: 0.5 },
   vaccineDistance: 0.9,
+  vaccineSideAngle: 35,
   lockBlendTime: 0.8,
   walkPlan: {
     phrase3: [0.25],
@@ -199,6 +200,10 @@ function init() {
 
   renderer.setAnimationLoop(animate);
   window.addEventListener("resize", onWindowResize);
+  window.addEventListener("orientationchange", onWindowResize);
+  window.visualViewport?.addEventListener("resize", onWindowResize);
+  document.addEventListener("fullscreenchange", onWindowResize);
+  renderer.xr.addEventListener("sessionend", onWindowResize);
 }
 
 // ==========================================
@@ -456,94 +461,159 @@ function setupLumaAndMagic() {
   });
 }
 
+function setStartLoading(progress) {
+  if (!DOM.startBtn) return;
+  DOM.startBtn.disabled = true;
+  DOM.startBtn.textContent =
+    progress == null ? "LOADING..." : `LOADING ${Math.round(progress * 100)}%`;
+}
+
+function setStartReady() {
+  if (!DOM.startBtn) return;
+  DOM.startBtn.disabled = false;
+  DOM.startBtn.textContent = "START EXPERIENCE";
+}
+
+async function prewarmTiaAna() {
+  if (!tiaAnaModel || renderer.xr.isPresenting) return;
+
+  const meshes = [];
+  tiaAnaModel.traverse((object) => {
+    if (!object.isMesh) return;
+    meshes.push([object, object.frustumCulled]);
+    object.frustumCulled = false;
+
+    const materials = Array.isArray(object.material)
+      ? object.material
+      : [object.material];
+    materials.forEach((material) => {
+      Object.values(material).forEach((value) => {
+        if (value?.isTexture) renderer.initTexture(value);
+      });
+    });
+  });
+
+  try {
+    await renderer.compileAsync(scene, camera);
+    renderer.render(scene, camera);
+  } catch (err) {
+    console.warn("Tia Ana prewarm skipped:", err);
+  }
+
+  meshes.forEach(([object, culled]) => {
+    object.frustumCulled = culled;
+  });
+}
+
 function loadTiaAnaModel() {
   const gltfLoader = new GLTFLoader();
+  const audioLoader = new THREE.AudioLoader();
 
-  gltfLoader.load("./assets/tia-ana.glb", (gltf) => {
-    tiaAnaModel = gltf.scene;
-    tiaAnaModel.scale.setScalar(1.7);
-    tiaAnaModel.position.set(3, -2, -3);
-    tiaAnaModel.rotation.set(0, -2.3, 0);
-    scene.add(tiaAnaModel);
+  const voiceBuffers = [1, 2, 3, 4, 5, 6].map((n) => {
+    const url = `./assets/tiaAna-${n}-phrase.mp3`;
+    return audioLoader.loadAsync(url).catch(() => {
+      console.warn(`Audio not found yet: ${url}`);
+      return null;
+    });
+  });
 
-    const audioLoader = new THREE.AudioLoader();
-    tiaAnaSound1 = new THREE.PositionalAudio(listener);
-    tiaAnaSound2 = new THREE.PositionalAudio(listener);
-    tiaAnaSound3 = new THREE.PositionalAudio(listener);
-    tiaAnaSound4 = new THREE.PositionalAudio(listener);
-    tiaAnaSound5 = new THREE.PositionalAudio(listener);
-    tiaAnaSound6 = new THREE.PositionalAudio(listener);
+  setStartLoading(null);
 
-    [
-      tiaAnaSound1,
-      tiaAnaSound2,
-      tiaAnaSound3,
-      tiaAnaSound4,
-      tiaAnaSound5,
-      tiaAnaSound6,
-    ].forEach((s) => configureVoiceAudio(s));
+  gltfLoader.load(
+    "./assets/tia-ana.glb",
+    async (gltf) => {
+      tiaAnaModel = gltf.scene;
+      tiaAnaModel.scale.setScalar(1.7);
+      tiaAnaModel.position.set(3, -2, -3);
+      tiaAnaModel.rotation.set(0, -2.3, 0);
+      scene.add(tiaAnaModel);
 
-    audioLoader.load("./assets/tiaAna-1-phrase.mp3", (buffer) =>
-      tiaAnaSound1.setBuffer(buffer),
-    );
-    audioLoader.load("./assets/tiaAna-2-phrase.mp3", (buffer) =>
-      tiaAnaSound2.setBuffer(buffer),
-    );
-    audioLoader.load("./assets/tiaAna-3-phrase.mp3", (buffer) =>
-      tiaAnaSound3.setBuffer(buffer),
-    );
-    audioLoader.load("./assets/tiaAna-4-phrase.mp3", (buffer) =>
-      tiaAnaSound4.setBuffer(buffer),
-    );
-    loadVoice(audioLoader, tiaAnaSound5, "./assets/tiaAna-5-phrase.mp3");
-    loadVoice(audioLoader, tiaAnaSound6, "./assets/tiaAna-6-phrase.mp3");
+      tiaAnaSound1 = new THREE.PositionalAudio(listener);
+      tiaAnaSound2 = new THREE.PositionalAudio(listener);
+      tiaAnaSound3 = new THREE.PositionalAudio(listener);
+      tiaAnaSound4 = new THREE.PositionalAudio(listener);
+      tiaAnaSound5 = new THREE.PositionalAudio(listener);
+      tiaAnaSound6 = new THREE.PositionalAudio(listener);
 
-    tiaAnaModel.add(tiaAnaSound1);
-    tiaAnaModel.add(tiaAnaSound2);
-    tiaAnaModel.add(tiaAnaSound3);
-    tiaAnaModel.add(tiaAnaSound4);
-    tiaAnaModel.add(tiaAnaSound5);
-    tiaAnaModel.add(tiaAnaSound6);
+      [
+        tiaAnaSound1,
+        tiaAnaSound2,
+        tiaAnaSound3,
+        tiaAnaSound4,
+        tiaAnaSound5,
+        tiaAnaSound6,
+      ].forEach((s) => configureVoiceAudio(s));
 
-    state.mixer = new THREE.AnimationMixer(tiaAnaModel);
+      tiaAnaModel.add(tiaAnaSound1);
+      tiaAnaModel.add(tiaAnaSound2);
+      tiaAnaModel.add(tiaAnaSound3);
+      tiaAnaModel.add(tiaAnaSound4);
+      tiaAnaModel.add(tiaAnaSound5);
+      tiaAnaModel.add(tiaAnaSound6);
 
-    state.animations.activeAction = null;
+      state.mixer = new THREE.AnimationMixer(tiaAnaModel);
 
-    const clips = gltf.animations;
+      state.animations.activeAction = null;
 
-    if (clips.length > 0) {
-      console.log(
-        "Animation clips found in GLB:",
-        clips.map((c) => c.name),
-      );
+      const clips = gltf.animations;
 
-      clips.forEach((clip) => {
-        const action = state.mixer.clipAction(clip);
-        const name = clip.name.toLowerCase();
+      if (clips.length > 0) {
+        console.log(
+          "Animation clips found in GLB:",
+          clips.map((c) => c.name),
+        );
 
-        if (name.includes("idle")) state.animations.idle = action;
-        if (name.includes("walk")) state.animations.walk = action;
-        if (name.includes("talk")) state.animations.talk = action;
+        clips.forEach((clip) => {
+          const action = state.mixer.clipAction(clip);
+          const name = clip.name.toLowerCase();
 
-        state.animations.all.push(action);
+          if (name.includes("idle")) state.animations.idle = action;
+          if (name.includes("walk")) state.animations.walk = action;
+          if (name.includes("talk")) state.animations.talk = action;
+
+          state.animations.all.push(action);
+        });
+
+        if (!state.animations.idle && state.animations.all[0]) {
+          state.animations.idle = state.animations.all[0];
+        }
+        if (!state.animations.walk && state.animations.all[1]) {
+          state.animations.walk = state.animations.all[1];
+        }
+        if (!state.animations.talk && state.animations.all[2]) {
+          state.animations.talk = state.animations.all[2];
+        }
+
+        if (state.animations.idle) {
+          state.animations.idle.play();
+          state.animations.activeAction = state.animations.idle;
+        }
+      }
+
+      const buffers = await Promise.all(voiceBuffers);
+      [
+        tiaAnaSound1,
+        tiaAnaSound2,
+        tiaAnaSound3,
+        tiaAnaSound4,
+        tiaAnaSound5,
+        tiaAnaSound6,
+      ].forEach((sound, i) => {
+        if (buffers[i]) sound.setBuffer(buffers[i]);
       });
 
-      if (!state.animations.idle && state.animations.all[0]) {
-        state.animations.idle = state.animations.all[0];
-      }
-      if (!state.animations.walk && state.animations.all[1]) {
-        state.animations.walk = state.animations.all[1];
-      }
-      if (!state.animations.talk && state.animations.all[2]) {
-        state.animations.talk = state.animations.all[2];
-      }
-
-      if (state.animations.idle) {
-        state.animations.idle.play();
-        state.animations.activeAction = state.animations.idle;
-      }
-    }
-  });
+      if (DOM.startBtn) DOM.startBtn.textContent = "PREPARING...";
+      await prewarmTiaAna();
+      setStartReady();
+    },
+    (event) => {
+      if (event.lengthComputable) setStartLoading(event.loaded / event.total);
+    },
+    (error) => {
+      console.error("Tia Ana model failed to load:", error);
+      setStartReady();
+    },
+  );
 }
 
 function setupSpatialAudio() {
@@ -563,15 +633,6 @@ function setupSpatialAudio() {
 
   lumaGroup.add(lumaSound1);
   lumaGroup.add(lumaSound2);
-}
-
-function loadVoice(audioLoader, sound, url) {
-  audioLoader.load(
-    url,
-    (buffer) => sound.setBuffer(buffer),
-    undefined,
-    () => console.warn(`Audio not found yet: ${url}`),
-  );
 }
 
 // ==========================================
@@ -905,7 +966,7 @@ function updateViewLock() {
   cameraRig.quaternion.identity().slerp(lockTarget, state.viewLockWeight);
 }
 
-function walkBehindViewer(onArrive) {
+function walkNextToViewer(onArrive) {
   if (!tiaAnaModel) {
     console.warn("Tia Ana model not loaded yet, walk skipped.");
     onArrive?.();
@@ -917,9 +978,17 @@ function walkBehindViewer(onArrive) {
 
   const look = camera.getWorldDirection(new THREE.Vector3());
   const frontAngle = Math.atan2(look.x, look.z);
-  const backAngle = frontAngle + Math.PI;
+  const sideAngle =
+    frontAngle + THREE.MathUtils.degToRad(CONFIG.vaccineSideAngle);
 
-  const delta = wrapAngle(backAngle - orbit.angle);
+  let delta = wrapAngle(sideAngle - orbit.angle);
+  const toFront = wrapAngle(frontAngle - orbit.angle);
+  if (
+    Math.sign(toFront) === Math.sign(delta) &&
+    Math.abs(toFront) < Math.abs(delta)
+  ) {
+    delta -= Math.sign(delta) * Math.PI * 2;
+  }
 
   const distance = Math.hypot(
     delta * orbit.radius,
@@ -973,7 +1042,7 @@ function startVaccineSequence() {
   setViewLock(true);
   if (bgMusic.playing()) turnDownVolume();
 
-  walkBehindViewer(() => {
+  walkNextToViewer(() => {
     if (tiaAnaSound6?.buffer && !tiaAnaSound6.isPlaying) tiaAnaSound6.play();
     gsap.delayedCall(voiceLength(tiaAnaSound6, 12), finishVaccine);
   });
@@ -1032,10 +1101,23 @@ function updateRaycaster() {
   }
 }
 
-function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
+function applyResize() {
+  if (renderer.xr.isPresenting) return;
+
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  if (!width || !height) return;
+
+  camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(width, height);
+}
+
+function onWindowResize() {
+  applyResize();
+  gsap.killTweensOf(applyResize);
+  gsap.delayedCall(0.4, applyResize);
 }
 
 init();

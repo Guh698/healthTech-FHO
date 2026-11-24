@@ -33,8 +33,8 @@ canvas {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100vw;
-  height: 100vh;
+  right: 0;
+  bottom: 0;
   background: radial-gradient(circle at 50% 40%, #12202a 0%, #000 70%);
   display: flex;
   flex-direction: column;
