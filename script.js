@@ -21,7 +21,7 @@ const CONFIG = {
   lumaStartDelay: 2.5,
   lumaLookPosition: { x: -1.5, y: 1.3, z: 0.5 },
   vaccineDistance: 0.9,
-  vaccineSideAngle: 35,
+  vaccineSideAngle: 70,
   lockBlendTime: 0.8,
   walkPlan: {
     phrase3: [0.25],
